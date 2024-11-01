@@ -6,5 +6,6 @@ enable_git_functions
 enable_json_functions
 enable_img_functions
 enable_k8s_functions
+enable_vmsp_functions
 # git@github.com:dmccaffrey/devtools.git
 " >> ~/.zshrc

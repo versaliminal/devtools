@@ -16,12 +16,22 @@ export GPG_TTY=$(tty)
 function enable_git_functions() {
     echo "Enabling git functions"
 
+    function get_base() {
+        git merge-base ${main_branch} $(git branch --show-current)
+    }
+
     function fixup() {
-        git commit --no-verify -a --fixup HEAD
+        git commit --no-verify -a --fixup=$(get_base)
+    }
+
+    function asquash() {
+        git rebase --no-verify -i --autosquash origin/${main_branch}
     }
 
     function squash() {
-        git rebase --no-verify -i --autosquash origin/${main_branch}
+        commit_msg="$(git log -1 --pretty=%B)"
+        git reset --soft $(get_base)
+        git commit --amend --allow-empty --no-verify -S -m "${commit_msg}"
     }
 
     function rebase() {
@@ -33,7 +43,7 @@ function enable_git_functions() {
     }
 
     function pub() {
-        git push -f
+        pre_commit_tests && git push -f
     }
 
     function append() {
@@ -43,6 +53,10 @@ function enable_git_functions() {
     function branch() {
         git_reset_master
         git_branch "$1" "$2"
+    }
+
+    function spub() {
+        pre_commit_tests && sign_commit && git push -f
     }
 
     function git_branch() {
@@ -98,8 +112,9 @@ function enable_git_functions() {
         git commit --amend --no-edit -S --allow-empty
     }
 
-    function spub() {
-        sign_commit && pub
+    function pre_commit_tests() {
+        #pre-commit run --all-files
+        pre-commit run -v
     }
 
 }
