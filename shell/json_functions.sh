@@ -1,7 +1,7 @@
 function enable_json_functions() {
     echo "Enabling JSON functions"
 
-    function jprint() {
+    function jpp() {
         file="${1}"
         jq "." ${file}
     }
@@ -9,7 +9,7 @@ function enable_json_functions() {
     function jselect() {
         query="${1}"
         for file in *.json; do
-            if [[ `_jq ${file} ${query}` == 'true' ]]; then
+            if [[ `jq ${file} ${query}` == 'true' ]]; then
                 echo "${file}"
             fi
         done
@@ -19,13 +19,7 @@ function enable_json_functions() {
         query="${1}"
         for file in *.json; do
             echo -e "\nFile: ${file}"
-            _jq ${file} ${query}
+            jq ${file} ${query}
         done
-    }
-
-    function _jq() {
-        file="${1}"
-        query="${2}"
-        jq ${query} ${file}
     }
 }
