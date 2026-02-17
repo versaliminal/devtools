@@ -1,0 +1,38 @@
+call plug#begin()
+
+" List your plugins here
+Plug 'tpope/vim-sensible'
+
+" IA Writer
+Plug 'junegunn/goyo.vim'
+Plug 'junegunn/limelight.vim'
+Plug 'reedes/vim-colors-pencil'
+Plug 'subnut/vim-iawriter'
+
+Plug 'neoclide/coc.nvim', {'branch': 'release'}
+
+Plug 'vimwiki/vimwiki'
+
+Plug 'jremmen/vim-ripgrep'
+
+call plug#end()
+
+let g:iawriter_center_cursor = 1
+
+set nocompatible
+filetype plugin on
+syntax on
+let g:vimwiki_list = [{'path': '~/Documents/vimwiki/',
+		      \ 'auto_diary_index': 1,
+                      \ 'syntax': 'markdown', 'ext': 'md'}]
+
+set tabstop=4
+set shiftwidth=4
+set relativenumber
+set autochdir
+
+let mapleader = " "
+
+nnoremap <leader>\ <C-w>w
+nnoremap <leader><esc> :q<enter>
+nnoremap <leader>t :Rg 
