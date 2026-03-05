@@ -13,9 +13,7 @@ ASCII_PALETTES = {
     "boxes": '■▣▨▢',
     "stairs": '█▇▆▅▄▃▂▁ ',
 }
-COLOR_PALETTES = {
-    "versaliminal": lambda p: versaliminal_palette(p)
-}
+
 FONT_LIST = [
     "arialbd.ttf",
     "Arial Bold.ttf",
@@ -30,12 +28,23 @@ FONT_IMG_WIDTH = 400
 QUIET = False
 AVAILABLE_FONT_NAME = ""
 
-def versaliminal_palette(percentage):
-    if percentage > 0.6:
-        color = random.choice([('magenta', None), ('magenta', ['dark']), ('light_red', None)])
-    else:
-        color = ('light_magenta', None)
+def versaliminal_palette(pixel_index, palette_index, palette_length):
+    color = random.choice([('magenta', ['dark']), ('magenta', ['dark']), ('red', ['dark'])])
+    if (palette_index / palette_length) < 0.8:
+        color = random.choice([('magenta', None), ('magenta', None), ('red', None)])
     return color
+
+def trans_palette(pixel_index, palette_index, palette_length):
+    colors = ['magenta', 'blue', 'white']
+    color = colors[pixel_index % len(colors)]
+    if (palette_index / palette_length) < 0.5:
+        return (color, None)
+    return (color, ['dark'])
+
+COLOR_PALETTES = {
+    "versaliminal": versaliminal_palette,
+    "trans": trans_palette
+}
 
 def get_first_available_font():
     for font_name in FONT_LIST:
@@ -124,7 +133,7 @@ def image_to_ascii(img, palette, palette_name, invert=False, output=None, output
             colors.append(('white', None))
         index = pixel_value * (len(palette) - 1) // 255
         if color_func:
-            colors.append(color_func(index / len(palette)))
+            colors.append(color_func(i, index, len(palette)))
         ascii_art += palette[index]
 
     if output:
