@@ -57,6 +57,9 @@ def find_filling_font(text, font):
         left, top, right, bottom = dummy_draw.textbbox((0, 0), text, font=font)
         text_width = right - left
         text_height = bottom - top
+        
+        if text_height > FONT_IMG_WIDTH * 0.25:
+            break
 
         if text_width + FONT_PADDING > FONT_IMG_WIDTH * 0.95:
             break
@@ -78,7 +81,7 @@ def generate_text_image(text):
 
     text_x = (image_width - text_width) / 2
     text_y = (image_height - text_height) / 2
-    text_y = text_height * -0.1  # Adjust vertical position slightly upwards for better visual balance
+    text_y = text_height * -0.05  # Adjust vertical position slightly upwards for better visual balance
     d.text((text_x, text_y), text, fill=(0, 0, 0), font=font)
 
     return img
@@ -104,7 +107,7 @@ def image_to_ascii(img, palette, palette_name, invert=False, output=None, output
 
     img = img.resize((output_width, output_height))
 
-    pixels = img.get_flattened_data()
+    pixels = list(img.get_flattened_data())
 
     color_func = COLOR_PALETTES.get(color, None)
     if not QUIET:
@@ -115,30 +118,28 @@ def image_to_ascii(img, palette, palette_name, invert=False, output=None, output
 
     colors = []
     ascii_art = ""
-    for pixel_value in pixels:
+    for i, pixel_value in enumerate(pixels):
+        if i % output_width == 0 and i != 0:
+            ascii_art += "\n"
+            colors.append(('white', None))
         index = pixel_value * (len(palette) - 1) // 255
         if color_func:
             colors.append(color_func(index / len(palette)))
         ascii_art += palette[index]
 
-    formatted_ascii_art = ""
-    for i in range(0, len(ascii_art), output_width):
-        formatted_ascii_art += ascii_art[i:i+output_width] + "\n"
-
     if output:
         with open(output, "w") as f:
-            f.write(formatted_ascii_art)
+            f.write(ascii_art)
         if not QUIET:
             print(f"ASCII art successfully written to {output}")
     else:
         if not QUIET:
             print(f"ASCII art for {input} using {palette} palette ({palette_name}):\n")
         if not color_func and color:
-            formatted_ascii_art = colored(formatted_ascii_art, color)
-            print(formatted_ascii_art)
+            print(colored(ascii_art, color))
         if color_func:
             for i, (color, attrs) in enumerate(colors):
-                print(colored(formatted_ascii_art[i], color, attrs=attrs), end="")
+                print(colored(ascii_art[i], color, attrs=attrs), end="")
             print()
 
 if __name__ == "__main__":
