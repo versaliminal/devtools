@@ -93,7 +93,7 @@ def open_image(input):
         print(f"Error opening image: {e}")
         return None
 
-def image_to_ascii(img, palette, palette_name, invert=False, output=None, output_width=DEFAULT_WIDTH, color=None):
+def image_to_ascii(img, palette, palette_name, invert=False, output=None, output_width=DEFAULT_WIDTH, color='white'):
     img = img.convert(GREYSCALE_FORMAT)
     if invert:
         img = ImageOps.invert(img)
@@ -106,10 +106,7 @@ def image_to_ascii(img, palette, palette_name, invert=False, output=None, output
 
     pixels = img.get_flattened_data()
 
-    color_func = None
-    if color:
-        color_func = COLOR_PALETTES.get(color, None)
-
+    color_func = COLOR_PALETTES.get(color, None)
     if not QUIET:
         if color_func:
             print(f"Using color function: {color}")
@@ -160,7 +157,7 @@ if __name__ == "__main__":
                         help="List available palette names and exit.")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress non-essential output messages.")
-    parser.add_argument("-c", "--color", help="Colorize the ASCII art output (only works in console).")
+    parser.add_argument("-c", "--color", default='white', help="Colorize the ASCII art output (only works in console).")
     args = parser.parse_args()
 
     QUIET = args.quiet
