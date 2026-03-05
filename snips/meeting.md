@@ -1,13 +1,11 @@
-# <Meeting>
+# 
 
 ## Agenda
-<TODO>
 
 ## Stakeholders
-- <name>
+- [Quinn McCaffrey](mailto:quinn@mccaffrey.dev)
 
 ## Notes
-<TODO>
 
 ## Action Items
 - [ ] <owner>: <action>
