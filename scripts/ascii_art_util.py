@@ -5,15 +5,20 @@ from PIL import Image, ImageOps, ImageDraw, ImageFont
 from termcolor import colored
 
 ASCII_PALETTES = {
-    "minimal": '@%#*+=-:. ',
+    "basic": '@%#*+=-:. ',
     "smooth": '@#W$9876543210?!abc;:+=-,._',
     "extended": r'$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\|()1{}[]?-_+~<>i!lI;:,"^`\'. ',
     "slices": '█▉▊▋▌▍▎▏ ',
     "bold": '█▓▒░ ',
     "boxes": '■▣▨▢',
     "stairs": '█▇▆▅▄▃▂▁ ',
+    "dots": '⣿⣶⣤⣀',
+    "minimal": '■ ',
+    "alpha": 'ahkbdpqwmZO0QLCJUYXzcvunxrjft',
+    "waves": '^-.',
+    "ohs": '0o. ',
+    "hearts": '♥❤♡ ',
 }
-
 FONT_LIST = [
     "arialbd.ttf",
     "Arial Bold.ttf",
@@ -41,9 +46,23 @@ def trans_palette(pixel_index, palette_index, palette_length):
         return (color, None)
     return (color, ['dark'])
 
+def rainbow_palette(pixel_index, palette_index, palette_length):
+    colors = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
+    color = colors[pixel_index % len(colors)]
+    if (palette_index / palette_length) < 0.5:
+        return (color, None)
+    return (color, ['dark'])
+
+def high_contrast_palette(pixel_index, palette_index, palette_length):
+    if (palette_index / palette_length) < 0.5:
+        return ('white', None)
+    return ('grey', ['dark'])
+
 COLOR_PALETTES = {
     "versaliminal": versaliminal_palette,
-    "trans": trans_palette
+    "trans": trans_palette,
+    "rainbow": rainbow_palette,
+    "high_contrast": high_contrast_palette
 }
 
 def get_first_available_font():
@@ -90,7 +109,7 @@ def generate_text_image(text):
 
     text_x = (image_width - text_width) / 2
     text_y = (image_height - text_height) / 2
-    text_y = text_height * -0.05  # Adjust vertical position slightly upwards for better visual balance
+    text_y = text_height * -0.08  # Adjust vertical position slightly upwards for better visual balance
     d.text((text_x, text_y), text, fill=(0, 0, 0), font=font)
 
     return img
