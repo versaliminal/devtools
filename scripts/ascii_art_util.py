@@ -21,6 +21,11 @@ ASCII_PALETTES = {
     "sticks": '|\'-. ',
     "rounds": '●◉◕◒◔○◠◟◦ ',
     "blinks": '⚉⚈⚇⚆○ ',
+    "wiggles": '⧚⧙⧘⸃ ',
+    "hours": '⧗⧖⧒⧐ ',
+    "solidus": '⫻⫽ ',
+    "circles": '⨂⨁⨀ ',
+    "integrals": '∰∯∮ '
 }
 FONT_LIST = [
     "arialbd.ttf",
