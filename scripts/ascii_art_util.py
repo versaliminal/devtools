@@ -43,7 +43,7 @@ AVAILABLE_FONT_NAME = ""
 
 def versaliminal_palette(pixel_index, palette_index, palette_length):
     color = random.choice([('magenta', ['dark']), ('magenta', ['dark']), ('red', ['dark'])])
-    if (palette_index / palette_length) < 0.8:
+    if (palette_index / palette_length) < 0.5:
         color = random.choice([('magenta', None), ('magenta', None), ('red', None)])
     return color
 
@@ -62,15 +62,21 @@ def rainbow_palette(pixel_index, palette_index, palette_length):
     return (color, ['dark'])
 
 def high_contrast_palette(pixel_index, palette_index, palette_length):
+    colors = [('white', None), ('white', ['dark']), ('grey', None), ('grey', ['dark'])]
+    return colors[round(palette_index / palette_length * (len(colors) - 1))]
+
+def term_palette(pixel_index, palette_index, palette_length):
+    color = random.choice([('green', ['dark']), ('yellow', ['dark']), ('red', ['dark'])])
     if (palette_index / palette_length) < 0.5:
-        return ('white', None)
-    return ('grey', ['dark'])
+        color = ('yellow', None)
+    return color
 
 COLOR_PALETTES = {
     "versaliminal": versaliminal_palette,
     "trans": trans_palette,
     "rainbow": rainbow_palette,
-    "high_contrast": high_contrast_palette
+    "high_contrast": high_contrast_palette,
+    "term": term_palette
 }
 
 def get_first_available_font():
