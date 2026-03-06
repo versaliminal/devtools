@@ -18,6 +18,9 @@ ASCII_PALETTES = {
     "waves": '^-.',
     "ohs": '0o. ',
     "hearts": '♥❤♡ ',
+    "sticks": '|\'-. ',
+    "rounds": '●◉◕◒◔○◠◟◦ ',
+    "blinks": '⚉⚈⚇⚆○ ',
 }
 FONT_LIST = [
     "arialbd.ttf",
