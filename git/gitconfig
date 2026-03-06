@@ -6,6 +6,7 @@
 
 [init]
 	defaultBranch = main
+	templateDir = ~/.git-templates
 
 [filter "lfs"]
 	clean = git-lfs clean -- %f
@@ -15,24 +16,24 @@
 
 [alias]
     cprev = !git rev-parse --short @ | tr -d '\n' | pbcopy && echo "Copied $(pbpaste)"
-	changes = !git log main..$(git branch --show-current)
-	last-msg = !git log -1 --pretty=%B
+	changes = log --oneline main..$(git branch --show-current)
+	last-msg = log -1 --pretty=%B
 
 	freebase = !git fetch && git rebase --no-verify -i origin/main
 
-	placeholder = !git commit --no-verify --allow-empty -S -m "" && git push -u origin $(git branch --show-current)
-	feat = !git checkout -b "$1" && git placeholder
-	base = !git merge-base main $(git branch --show-current)
-	soft-rebase = !git reset --soft $(git base)
-	fixup = !git commit --no-verify -a --fixup=$(git base)
+	placeholder = commit --no-verify --allow-empty -S -m "" && push -u origin $(git branch --show-current)
+	feat = checkout -b "$1" && placeholder
+	base = merge-base main $(git branch --show-current)
+	soft-rebase = reset --soft $(base)
+	fixup = commit --no-verify -a --fixup=$(base)
 	append = !git fixup && git rebase --no-verify -i --autosquash origin/main
-	reword = !git commit --no-verify --amend --allow-empty
-	squash = !git commit --amend --allow-empty --no-verify -S -m "$(git last-message)"
-	unstage = !git restore --staged "$1"
+	reword = commit --no-verify --amend --allow-empty
+	squash = commit --amend --allow-empty --no-verify -S -m "$(last-msg)"
+	unstage = restore --staged "$1"
 
-	sign = !git commit --amend --no-edit -S --allow-empty
-	pub = !git push -f
+	sign = commit --amend --no-edit -S --allow-empty
+	pub = push -f
 	spub = !git sign && git pub
 
-	discard = !git fetch && git reset --hard origin/$(git branch --show-current)
-	main = !git fetch && git checkout main && git reset --hard origin/main
+	discard = !git fetch && reset --hard origin/$(git branch --show-current)
+	main = !git fetch && checkout main && reset --hard origin/main
