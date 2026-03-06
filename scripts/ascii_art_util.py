@@ -1,5 +1,7 @@
 import argparse
+import numpy
 import random
+from dithering import ordered_dither
 from pathlib import Path
 from PIL import Image, ImageOps, ImageDraw, ImageFont
 from termcolor import colored
@@ -25,7 +27,8 @@ ASCII_PALETTES = {
     "hours": '⧗⧖⧒⧐ ',
     "solidus": '⫻⫽ ',
     "circles": '⨂⨁⨀ ',
-    "integrals": '∰∯∮ '
+    "integrals": '∰∯∮ ',
+    "cards": '🂾🂸🂶🂵🂴🂲 '
 }
 FONT_LIST = [
     "arialbd.ttf",
@@ -78,6 +81,10 @@ COLOR_PALETTES = {
     "high_contrast": high_contrast_palette,
     "term": term_palette
 }
+
+def dither_image(img):
+    dithered = ordered_dither(numpy.array(img), "Bayer4x4")
+    return Image.fromarray(dithered)
 
 def get_first_available_font():
     for font_name in FONT_LIST:
@@ -138,10 +145,17 @@ def open_image(input):
         print(f"Error opening image: {e}")
         return None
 
-def image_to_ascii(img, palette, palette_name, invert=False, output=None, output_width=DEFAULT_WIDTH, color='white'):
+def image_to_ascii(img, palette, palette_name, invert=False, output=None, output_width=DEFAULT_WIDTH, color='white', dither=False):
     img = img.convert(GREYSCALE_FORMAT)
     if invert:
+        if not QUIET:
+            print("Inverting image colors")
         img = ImageOps.invert(img)
+
+    if dither:
+        if not QUIET:
+            print("Applying dithering to the image")
+        img = dither_image(img)
 
     width, height = img.size
     aspect_ratio = height / width
@@ -201,6 +215,8 @@ if __name__ == "__main__":
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress non-essential output messages.")
     parser.add_argument("-c", "--color", default='white', help="Colorize the ASCII art output (only works in console).")
+    parser.add_argument("-d", "--dither", action="store_true",
+                        help="Apply dithering to the image before converting to ASCII art.")
     args = parser.parse_args()
 
     QUIET = args.quiet
@@ -235,4 +251,4 @@ if __name__ == "__main__":
         output = None
         if output_path:
             output = output_path.joinpath(f"{input_name}_{name}.txt")
-        image_to_ascii(img, palette, name, args.invert, output, args.width, args.color)
+        image_to_ascii(img, palette, name, args.invert, output, args.width, args.color, args.dither)
