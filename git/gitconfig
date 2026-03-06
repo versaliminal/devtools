@@ -28,6 +28,7 @@
 	append = !git fixup && git rebase --no-verify -i --autosquash origin/main
 	reword = !git commit --no-verify --amend --allow-empty
 	squash = !git commit --amend --allow-empty --no-verify -S -m "$(git last-message)"
+	unstage = !git restore --staged "$1"
 
 	sign = !git commit --amend --no-edit -S --allow-empty
 	pub = !git push -f
