@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -11,8 +10,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/h2non/filetype"
-	"golang.org/x/term"
 )
 
 const (
@@ -34,6 +34,285 @@ const (
 	schemePrintable
 )
 
+type model struct {
+	data          []byte
+	fileSize      int64
+	filename      string
+	offset        int64
+	currentMode   viewMode
+	currentScheme colorScheme
+	width         int
+	height        int
+	globalEntropy float64
+
+	// Search/Jump state
+	searching     bool
+	jumping       bool
+	textInput     textinput.Model
+	searchMsg     string
+	pendingOffset int64
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	if m.searching || m.jumping {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			switch msg.String() {
+			case "enter":
+				if m.searching {
+					searchStr := m.textInput.Value()
+					if searchStr != "" {
+						idx := bytes.Index(m.data, []byte(searchStr))
+						if idx != -1 {
+							m.pendingOffset = int64(idx)
+							m.searchMsg = fmt.Sprintf("Found at offset: %08x. Press Enter to go.", idx)
+						} else {
+							m.searchMsg = "String not found."
+							m.pendingOffset = -1
+						}
+					}
+					m.searching = false
+				} else if m.jumping {
+					hexStr := strings.TrimSpace(m.textInput.Value())
+					if hexStr != "" {
+						newOffset, err := strconv.ParseInt(strings.TrimPrefix(hexStr, "0x"), 16, 64)
+						if err == nil {
+							m.pendingOffset = newOffset
+							m.searchMsg = fmt.Sprintf("Jump to offset: %08x. Press Enter to go.", newOffset)
+						} else {
+							m.searchMsg = "Invalid hex offset."
+							m.pendingOffset = -1
+						}
+					}
+					m.jumping = false
+				}
+				m.textInput.Blur()
+				return m, nil
+			case "esc":
+				m.searching = false
+				m.jumping = false
+				m.textInput.Blur()
+				return m, nil
+			}
+		}
+		m.textInput, cmd = m.textInput.Update(msg)
+		return m, cmd
+	}
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
+	case tea.KeyMsg:
+		// If we are showing a message, clear it.
+		if m.searchMsg != "" {
+			if msg.String() == "enter" && m.pendingOffset != -1 {
+				m.offset = m.pendingOffset
+			}
+			m.searchMsg = ""
+			m.pendingOffset = -1
+			// Fall through to allow 's', 'j', and other keys to work immediately
+		}
+
+		switch msg.String() {
+		case "q", "ctrl+c", "esc":
+			return m, tea.Quit
+
+		case "tab":
+			m.currentMode = (m.currentMode + 1) % 3
+
+		case "/":
+			if m.currentScheme == schemeRanges {
+				m.currentScheme = schemePrintable
+			} else {
+				m.currentScheme = schemeRanges
+			}
+
+		case "s", "S":
+			m.searching = true
+			m.jumping = false
+			m.textInput.Focus()
+			m.textInput.SetValue("")
+			m.textInput.Prompt = "Search ASCII: "
+			m.searchMsg = ""
+			m.pendingOffset = -1
+			return m, nil
+
+		case "j", "J":
+			m.jumping = true
+			m.searching = false
+			m.textInput.Focus()
+			m.textInput.SetValue("")
+			m.textInput.Prompt = "Jump to Hex Offset (e.g. 1A0): "
+			m.searchMsg = ""
+			m.pendingOffset = -1
+			return m, nil
+
+		case "up":
+			m.offset -= m.getStep()
+		case "down":
+			m.offset += m.getStep()
+		case "pgup":
+			m.offset -= m.getPageStep()
+		case "pgdown":
+			m.offset += m.getPageStep()
+		}
+	}
+
+	// Boundary checks
+	if m.offset < 0 {
+		m.offset = 0
+	}
+	if m.fileSize > 0 {
+		if m.offset >= m.fileSize {
+			m.offset = ((m.fileSize - 1) / 16) * 16
+		}
+	} else {
+		m.offset = 0
+	}
+
+	return m, nil
+}
+
+func (m model) getStep() int64 {
+	switch m.currentMode {
+	case modeHexdump:
+		return int64(bytesPerRow)
+	case modeLinear:
+		return int64(m.width / 2)
+	case modeHilbert:
+		return int64(m.getHilbertN())
+	default:
+		return 1
+	}
+}
+
+func (m model) getPageStep() int64 {
+	headerRows := 9
+	displayRows := m.height - headerRows
+	if displayRows < 1 {
+		displayRows = 1
+	}
+
+	switch m.currentMode {
+	case modeHilbert:
+		n := m.getHilbertN()
+		return int64(n * n)
+	default:
+		return m.getStep() * int64(displayRows)
+	}
+}
+
+func (m model) getHilbertN() int {
+	hilbertN := 1
+	for hilbertN*2 <= m.width/2 {
+		hilbertN *= 2
+	}
+	return hilbertN
+}
+
+func (m model) View() string {
+	if m.width == 0 || m.height == 0 {
+		return "Initializing..."
+	}
+
+	headerRows := 10 // Reserve space for header and footer
+	displayRows := m.height - headerRows
+	if displayRows < 1 {
+		displayRows = 1
+	}
+
+	hilbertN := m.getHilbertN()
+
+	var lines []string
+
+	// 1. Display header (6 lines)
+	headerLines := getHeaderLines(m.currentScheme)
+	lines = append(lines, headerLines...)
+
+	// 2. Entropy line (1 line)
+	var visibleBytes int
+	switch m.currentMode {
+	case modeHexdump:
+		visibleBytes = displayRows * bytesPerRow
+	case modeLinear:
+		visibleBytes = displayRows * (m.width / 2)
+	case modeHilbert:
+		visibleBytes = (displayRows / hilbertN) * (hilbertN * hilbertN)
+		if visibleBytes == 0 {
+			visibleBytes = hilbertN * hilbertN
+		}
+	}
+
+	viewEnd := m.offset + int64(visibleBytes)
+	if viewEnd > m.fileSize {
+		viewEnd = m.fileSize
+	}
+	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
+	lines = append(lines, fmt.Sprintf("Entropy: Global: %.4f bits/byte | View: %.4f bits/byte", m.globalEntropy, viewEntropy))
+
+	// 3. Mode/File line (1 line)
+	modeName := ""
+	switch m.currentMode {
+	case modeHexdump:
+		modeName = "Hexdump"
+	case modeLinear:
+		modeName = "Wrapped Linear"
+	case modeHilbert:
+		modeName = "Hilbert Curve"
+	}
+	lines = append(lines, fmt.Sprintf("--- File: %s | Mode: %s | Offset: %08x / %08x ---", m.filename, modeName, m.offset, m.fileSize))
+
+	// 4. Spacer line (1 line)
+	lines = append(lines, "")
+
+	// 5. Data rows (displayRows)
+	var dataBuf strings.Builder
+	switch m.currentMode {
+	case modeHexdump:
+		renderHexdump(&dataBuf, m.data, m.fileSize, m.offset, displayRows, m.currentScheme)
+	case modeLinear:
+		renderLinear(&dataBuf, m.data, m.fileSize, m.offset, m.width, displayRows, m.currentScheme)
+	case modeHilbert:
+		renderHilbert(&dataBuf, m.data, m.fileSize, m.offset, hilbertN, displayRows, m.currentScheme)
+	}
+	dataLines := strings.Split(strings.TrimSuffix(dataBuf.String(), "\n"), "\n")
+	for i := 0; i < displayRows && i < len(dataLines); i++ {
+		lines = append(lines, dataLines[i])
+	}
+
+	// 6. Padding to reach the footer (height - 1)
+	for len(lines) < m.height-1 {
+		lines = append(lines, "")
+	}
+
+	// 7. Footer (1 line)
+	footer := ""
+	if m.searching || m.jumping {
+		footer = m.textInput.View()
+	} else if m.searchMsg != "" {
+		footer = m.searchMsg + " (Press any key)"
+	} else {
+		footer = "Nav: Arrows (Ln), PgUp/PgDn (Scr), Tab (Mode), / (Scheme), J (Jump), S (Search), Q (Exit)"
+	}
+	lines = append(lines, footer)
+
+	// Ensure we don't exceed height
+	if len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func main() {
 	if len(os.Args) != 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <filename>\n", os.Args[0])
@@ -48,7 +327,6 @@ func main() {
 	}
 	defer file.Close()
 
-	// Get file size
 	stat, err := file.Stat()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting file stats: %v\n", err)
@@ -61,7 +339,6 @@ func main() {
 		return
 	}
 
-	// Memory map the file
 	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_PRIVATE)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error memory mapping file: %v\n", err)
@@ -69,245 +346,27 @@ func main() {
 	}
 	defer syscall.Munmap(data)
 
-	// Set terminal to raw mode to capture keyboard input
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error setting raw mode: %v\n", err)
+	ti := textinput.New()
+	ti.Placeholder = "Value..."
+	ti.CharLimit = 156
+	ti.Width = 40
+
+	m := model{
+		data:          data,
+		fileSize:      fileSize,
+		filename:      filename,
+		globalEntropy: calculateEntropy(data),
+		textInput:     ti,
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)
 		os.Exit(1)
 	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
-
-	// Hide cursor
-	fmt.Print("\033[?25l")
-	defer fmt.Print("\033[?25h")
-
-	var offset int64 = 0
-	var currentMode = modeHexdump
-	var currentScheme = schemeRanges
-	var lastMode = currentMode
-	var lastScheme = currentScheme
-
-	// Calculate global entropy once
-	globalEntropy := calculateEntropy(data)
-
-	for {
-		// Get terminal dimensions
-		width, height, err := term.GetSize(int(os.Stdout.Fd()))
-		if err != nil {
-			width = 80
-			height = 24
-		}
-
-		// Header lines:
-		// 1-5: Color mapping (5 rows)
-		// 6: Entropy info
-		// 7: File/Mode info
-		// 8: Empty
-		// Final Row: Navigation help (at height)
-		headerRows := 9
-		displayRows := height - headerRows
-
-		if displayRows < 1 {
-			displayRows = 1
-		}
-
-		// Calculate Hilbert N for this screen size (Power of 2 fitting width)
-		hilbertN := 1
-		for hilbertN*2 <= width/2 {
-			hilbertN *= 2
-		}
-
-		// Use a strings.Builder to buffer the entire screen output
-		var screen strings.Builder
-
-		// Clear screen when mode or scheme changes to avoid artifacts
-		if currentMode != lastMode || currentScheme != lastScheme {
-			screen.WriteString("\033[2J")
-			lastMode = currentMode
-			lastScheme = currentScheme
-		}
-
-		// Reset cursor to top-left
-		screen.WriteString("\033[H")
-
-		// Display header
-		displayHeader(&screen, currentScheme)
-
-		// Calculate visible bytes for entropy
-		var visibleBytes int
-		switch currentMode {
-		case modeHexdump:
-			visibleBytes = displayRows * bytesPerRow
-		case modeLinear:
-			visibleBytes = displayRows * (width / 2)
-		case modeHilbert:
-			visibleBytes = (displayRows / hilbertN) * (hilbertN * hilbertN)
-			if visibleBytes == 0 {
-				visibleBytes = hilbertN * hilbertN
-			}
-		}
-
-		viewEnd := offset + int64(visibleBytes)
-		if viewEnd > fileSize {
-			viewEnd = fileSize
-		}
-		viewEntropy := calculateEntropy(data[offset:viewEnd])
-
-		fmt.Fprintf(&screen, "Entropy: Global: %.4f bits/byte | View: %.4f bits/byte\033[K\r\n", globalEntropy, viewEntropy)
-
-		modeName := ""
-		switch currentMode {
-		case modeHexdump:
-			modeName = "Hexdump"
-		case modeLinear:
-			modeName = "Wrapped Linear"
-		case modeHilbert:
-			modeName = "Hilbert Curve"
-		}
-
-		fmt.Fprintf(&screen, "--- File: %s | Mode: %s | Offset: %08x / %08x ---\033[K\r\n\033[K\r\n", filename, modeName, offset, fileSize)
-
-		switch currentMode {
-		case modeHexdump:
-			renderHexdump(&screen, data, fileSize, offset, displayRows, currentScheme)
-		case modeLinear:
-			renderLinear(&screen, data, fileSize, offset, width, displayRows, currentScheme)
-		case modeHilbert:
-			renderHilbert(&screen, data, fileSize, offset, hilbertN, displayRows, currentScheme)
-		}
-
-		// Clear the space between end of data and bottom navigation line
-		screen.WriteString("\033[J")
-
-		// Move to the bottom row for navigation help
-		fmt.Fprintf(&screen, "\033[%d;1H", height)
-		screen.WriteString("Nav: Arrows (Ln), PgUp/PgDn (Scr), Tab (Mode), / (Scheme), J (Jump), S (Search), Q (Exit)\033[K")
-
-		// Output the entire buffered screen at once
-		fmt.Print(screen.String())
-
-		// Read key input
-		buf := make([]byte, 8)
-		n, err := os.Stdin.Read(buf)
-		if err != nil && err != io.EOF {
-			break
-		}
-
-		if n > 0 {
-			key := buf[:n]
-			// Check for 'q' or 'Q' or alone ESC
-			if key[0] == 'q' || key[0] == 'Q' || (key[0] == 27 && n == 1) {
-				break
-			} else if key[0] == 's' || key[0] == 'S' {
-				// Search for string
-				fmt.Printf("\033[%d;1H\033[KSearch ASCII: ", height)
-				term.Restore(int(os.Stdin.Fd()), oldState)
-
-				scanner := bufio.NewScanner(os.Stdin)
-				var searchStr string
-				if scanner.Scan() {
-					searchStr = scanner.Text()
-				}
-
-				if searchStr != "" {
-					idx := bytes.Index(data, []byte(searchStr))
-					if idx != -1 {
-						offset = int64(idx)
-						fmt.Printf("Found at offset: %08x. Press Enter to go...", idx)
-						fmt.Scanln()
-					} else {
-						fmt.Printf("String not found. Press Enter to continue...")
-						fmt.Scanln()
-					}
-				}
-
-				// Re-enable raw mode
-				oldState, _ = term.MakeRaw(int(os.Stdin.Fd()))
-			} else if key[0] == 'j' || key[0] == 'J' {
-				// Jump to offset
-				fmt.Printf("\033[%d;1H\033[KJump to Hex Offset (e.g. 1A0): ", height)
-				term.Restore(int(os.Stdin.Fd()), oldState)
-
-				scanner := bufio.NewScanner(os.Stdin)
-				var hexStr string
-				if scanner.Scan() {
-					hexStr = strings.TrimSpace(scanner.Text())
-				}
-
-				if hexStr != "" {
-					newOffset, err := strconv.ParseInt(strings.TrimPrefix(hexStr, "0x"), 16, 64)
-					if err == nil {
-						offset = newOffset
-					}
-				}
-				// Re-enable raw mode
-				oldState, _ = term.MakeRaw(int(os.Stdin.Fd()))
-
-			} else if key[0] == '/' {
-				if currentScheme == schemeRanges {
-					currentScheme = schemePrintable
-				} else {
-					currentScheme = schemeRanges
-				}
-			} else if key[0] == 9 { // Tab key
-				currentMode = (currentMode + 1) % 3
-			} else if key[0] == 27 && n > 1 { // Escape sequence
-				if key[1] == '[' {
-					if len(key) >= 3 {
-						var step int64
-						switch currentMode {
-						case modeHexdump:
-							step = int64(bytesPerRow)
-						case modeLinear:
-							step = int64(width / 2)
-						case modeHilbert:
-							step = int64(hilbertN)
-						}
-
-						switch key[2] {
-						case 'A': // Up Arrow
-							offset -= step
-						case 'B': // Down Arrow
-							offset += step
-						case '5': // Page Up
-							if len(key) >= 4 && key[3] == '~' {
-								pageStep := step * int64(displayRows)
-								if currentMode == modeHilbert {
-									pageStep = int64(hilbertN * hilbertN)
-								}
-								offset -= pageStep
-							}
-						case '6': // Page Down
-							if len(key) >= 4 && key[3] == '~' {
-								pageStep := step * int64(displayRows)
-								if currentMode == modeHilbert {
-									pageStep = int64(hilbertN * hilbertN)
-								}
-								offset += pageStep
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Boundary checks
-		if offset < 0 {
-			offset = 0
-		}
-		if fileSize > 0 {
-			if offset >= fileSize {
-				offset = ((fileSize - 1) / 16) * 16
-			}
-		} else {
-			offset = 0
-		}
-	}
-
-	// Final clear screen and reset cursor on exit
-	fmt.Print("\033[2J\033[H")
-	fmt.Println("Program exited.")
 }
+
+// Ported helper functions
 
 func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows int, scheme colorScheme) {
 	for i := 0; i < rows && (offset+int64(i*bytesPerRow)) < fileSize; i++ {
@@ -337,10 +396,8 @@ func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows 
 			}
 		}
 
-		// Magic byte detection
 		var magicInfo string
 		if rowOffset < fileSize {
-			// Get a chunk for detection (limit to something reasonable like 262 bytes or less)
 			detectLen := 262
 			if int64(detectLen) > fileSize-rowOffset {
 				detectLen = int(fileSize - rowOffset)
@@ -350,7 +407,7 @@ func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows 
 				magicInfo = fmt.Sprintf(" | %s (%s)", kind.Extension, kind.MIME.Value)
 			}
 		}
-		fmt.Fprintf(w, "%s\033[K\r\n", magicInfo)
+		fmt.Fprintf(w, "%s\n", magicInfo)
 	}
 }
 
@@ -369,7 +426,7 @@ func renderLinear(w io.Writer, data []byte, fileSize int64, offset int64, width,
 				break
 			}
 		}
-		fmt.Fprint(w, "\033[K\r\n")
+		fmt.Fprint(w, "\n")
 	}
 }
 
@@ -378,13 +435,11 @@ func renderHilbert(w io.Writer, data []byte, fileSize int64, offset int64, n, di
 	rowsRemaining := displayRows
 
 	for rowsRemaining > 0 && currentOffset < fileSize {
-		// Calculate how many rows of this square we can show
 		rowsToRender := n
 		if rowsToRender > rowsRemaining {
 			rowsToRender = rowsRemaining
 		}
 
-		// Prepare a grid for the square
 		grid := make([][]byte, n)
 		mask := make([][]bool, n)
 		for i := range grid {
@@ -392,7 +447,6 @@ func renderHilbert(w io.Writer, data []byte, fileSize int64, offset int64, n, di
 			mask[i] = make([]bool, n)
 		}
 
-		// Map indices to the grid
 		for d := 0; d < n*n; d++ {
 			var x, y int
 			d2xy(n, d, &x, &y)
@@ -403,7 +457,6 @@ func renderHilbert(w io.Writer, data []byte, fileSize int64, offset int64, n, di
 			}
 		}
 
-		// Print the rows
 		for y := 0; y < rowsToRender; y++ {
 			for x := 0; x < n; x++ {
 				if mask[y][x] {
@@ -412,7 +465,7 @@ func renderHilbert(w io.Writer, data []byte, fileSize int64, offset int64, n, di
 					fmt.Fprint(w, "  ")
 				}
 			}
-			fmt.Fprint(w, "\033[K\r\n")
+			fmt.Fprint(w, "\n")
 		}
 
 		rowsRemaining -= rowsToRender
@@ -462,19 +515,24 @@ func calculateEntropy(data []byte) float64 {
 	return entropy
 }
 
-func displayHeader(w io.Writer, scheme colorScheme) {
+func getHeaderLines(scheme colorScheme) []string {
+	var lines []string
 	if scheme == schemeRanges {
-		fmt.Fprint(w, "Color-coded byte viewer (Ranges):\033[K\r\n")
-		fmt.Fprint(w, " 00-0F: \033[41m  \033[0m 10-1F: \033[42m  \033[0m 20-2F: \033[43m  \033[0m 30-3F: \033[44m  \033[0m\033[K\r\n")
-		fmt.Fprint(w, " 40-4F: \033[45m  \033[0m 50-5F: \033[46m  \033[0m 60-6F: \033[47m  \033[0m 70-7F: \033[1;47m  \033[0m\033[K\r\n")
-		fmt.Fprint(w, " 80-8F: \033[41m  \033[0m 90-9F: \033[42m  \033[0m A0-AF: \033[43m  \033[0m B0-BF: \033[44m  \033[0m\033[K\r\n")
-		fmt.Fprint(w, " C0-CF: \033[45m  \033[0m D0-DF: \033[46m  \033[0m E0-EF: \033[47m  \033[0m F0-FF: \033[1;47m  \033[0m\033[K\r\n")
-		fmt.Fprint(w, "\033[K\r\n")
+		lines = append(lines, "Color-coded byte viewer (Ranges):")
+		lines = append(lines, " 00-0F: \033[41m  \033[0m 10-1F: \033[42m  \033[0m 20-2F: \033[43m  \033[0m 30-3F: \033[44m  \033[0m")
+		lines = append(lines, " 40-4F: \033[45m  \033[0m 50-5F: \033[46m  \033[0m 60-6F: \033[47m  \033[0m 70-7F: \033[1;47m  \033[0m")
+		lines = append(lines, " 80-8F: \033[41m  \033[0m 90-9F: \033[42m  \033[0m A0-AF: \033[43m  \033[0m B0-BF: \033[44m  \033[0m")
+		lines = append(lines, " C0-CF: \033[45m  \033[0m D0-DF: \033[46m  \033[0m E0-EF: \033[47m  \033[0m F0-FF: \033[1;47m  \033[0m")
+		lines = append(lines, "")
 	} else {
-		fmt.Fprint(w, "Color-coded byte viewer (Printable):\033[K\r\n")
-		fmt.Fprint(w, " Null: \033[40m  \033[0m Space: \033[44m  \033[0m Print: \033[42m  \033[0m Other: \033[41m  \033[0m\033[K\r\n")
-		fmt.Fprint(w, "\033[K\r\n\033[K\r\n\033[K\r\n\033[K\r\n") // Keep header height consistent
+		lines = append(lines, "Color-coded byte viewer (Printable):")
+		lines = append(lines, " Null: \033[40m  \033[0m Space: \033[44m  \033[0m Print: \033[42m  \033[0m Other: \033[41m  \033[0m")
+		lines = append(lines, "")
+		lines = append(lines, "")
+		lines = append(lines, "")
+		lines = append(lines, "")
 	}
+	return lines
 }
 
 func getColor(value byte, scheme colorScheme) string {
