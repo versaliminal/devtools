@@ -32,6 +32,7 @@ type colorScheme int
 const (
 	schemeRanges colorScheme = iota
 	schemePrintable
+	scheme256Colors
 )
 
 type model struct {
@@ -132,6 +133,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			if m.currentScheme == schemeRanges {
 				m.currentScheme = schemePrintable
+			} else if m.currentScheme == schemePrintable {
+				m.currentScheme = scheme256Colors
 			} else {
 				m.currentScheme = schemeRanges
 			}
@@ -524,6 +527,13 @@ func getHeaderLines(scheme colorScheme) []string {
 		lines = append(lines, " 80-8F: \033[41m  \033[0m 90-9F: \033[42m  \033[0m A0-AF: \033[43m  \033[0m B0-BF: \033[44m  \033[0m")
 		lines = append(lines, " C0-CF: \033[45m  \033[0m D0-DF: \033[46m  \033[0m E0-EF: \033[47m  \033[0m F0-FF: \033[1;47m  \033[0m")
 		lines = append(lines, "")
+	} else if scheme == scheme256Colors {
+		lines = append(lines, "Color-coded byte viewer (256-color):")
+		lines = append(lines, " Byte values 0-15: \033[48;5;0m  \033[0m \033[48;5;1m  \033[0m \033[48;5;2m  \033[0m \033[48;5;3m  \033[0m")
+		lines = append(lines, " Byte values 16-31: \033[48;5;16m  \033[0m \033[48;5;17m  \033[0m \033[48;5;18m  \033[0m \033[48;5;19m  \033[0m")
+		lines = append(lines, " Byte values 32-47: \033[48;5;32m  \033[0m \033[48;5;33m  \033[0m \033[48;5;34m  \033[0m \033[48;5;35m  \033[0m")
+		lines = append(lines, " Byte values 48-63: \033[48;5;48m  \033[0m \033[48;5;49m  \033[0m \033[48;5;50m  \033[0m \033[48;5;51m  \033[0m")
+		lines = append(lines, "")
 	} else {
 		lines = append(lines, "Color-coded byte viewer (Printable):")
 		lines = append(lines, " Null: \033[40m  \033[0m Space: \033[44m  \033[0m Print: \033[42m  \033[0m Other: \033[41m  \033[0m")
@@ -547,6 +557,13 @@ func getColor(value byte, scheme colorScheme) string {
 		default:
 			return "\033[41m" // Non-printable - Red
 		}
+	}
+
+	if scheme == scheme256Colors {
+		// Use 256-color terminal codes for better visual distinction
+		// We'll use a mapping that colors each byte value with a distinct color
+		// from the 256-color palette based on its value
+		return fmt.Sprintf("\033[48;5;%dm", value)
 	}
 
 	switch {
