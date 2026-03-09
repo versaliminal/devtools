@@ -295,21 +295,26 @@ func (m model) View() string {
 		return titleStyle.Render("Initializing...") + "\n"
 	}
 
-	headerRows := 11 // Reserve space for header (title + scheme info + entropy + status + spacer)
-	displayRows := m.height - headerRows
+	// Calculate fixed-size component heights
+	headerLines := getHeaderLines(m.currentScheme)
+	headerHeight := len(headerLines)
+	entropyHeight := 1
+	statusHeight := 1
+	spacerHeight := 1
+	footerHeight := 1
+
+	fixedHeight := headerHeight + entropyHeight + statusHeight + spacerHeight + footerHeight
+	displayRows := m.height - fixedHeight
 	if displayRows < 1 {
 		displayRows = 1
 	}
 
 	hilbertN := m.getHilbertN()
 
-	var lines []string
+	// 1. Header
+	header := lipgloss.JoinVertical(lipgloss.Left, headerLines...)
 
-	// 1. Display header (title + scheme info)
-	headerLines := getHeaderLines(m.currentScheme)
-	lines = append(lines, headerLines...)
-
-	// 2. Entropy line
+	// 2. Entropy
 	var visibleBytes int
 	switch m.currentMode {
 	case modeHexdump:
@@ -329,9 +334,9 @@ func (m model) View() string {
 	}
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
 	entropyLine := fmt.Sprintf("Entropy: Global: %.4f bits/byte | View: %.4f bits/byte", m.globalEntropy, viewEntropy)
-	lines = append(lines, infoStyle.Render(entropyLine))
+	entropyView := infoStyle.Render(entropyLine)
 
-	// 3. Mode/File line
+	// 3. Status
 	modeName := ""
 	switch m.currentMode {
 	case modeHexdump:
@@ -342,12 +347,9 @@ func (m model) View() string {
 		modeName = "Hilbert Curve"
 	}
 	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %08x / %08x", m.filename, modeName, m.offset, m.fileSize)
-	lines = append(lines, baseStyle.Render(statusLine))
+	statusView := baseStyle.Render(statusLine)
 
-	// 4. Spacer line
-	lines = append(lines, "")
-
-	// 5. Data rows (displayRows)
+	// 4. Data rows
 	var dataBuf strings.Builder
 	switch m.currentMode {
 	case modeHexdump:
@@ -358,34 +360,32 @@ func (m model) View() string {
 		renderHilbert(&dataBuf, m.data, m.fileSize, m.offset, hilbertN, displayRows, m.currentScheme)
 	}
 	dataLines := strings.Split(strings.TrimSuffix(dataBuf.String(), "\n"), "\n")
-	for i := 0; i < displayRows && i < len(dataLines); i++ {
-		lines = append(lines, dataLines[i])
-	}
+	contentView := lipgloss.JoinVertical(lipgloss.Left, dataLines...)
 
-	// 6. Padding to reach the footer (height - 1)
-	for len(lines) < m.height-1 {
-		lines = append(lines, "")
-	}
-
-	// 7. Footer (1 line)
+	// 5. Footer
 	footer := ""
-	if m.searching {
-		footer = inputPromptStyle.Render(m.textInput.Prompt) + m.textInput.View()
-	} else if m.jumping {
+	if m.searching || m.jumping {
 		footer = inputPromptStyle.Render(m.textInput.Prompt) + m.textInput.View()
 	} else if m.searchMsg != "" {
 		footer = statusStyle.Render(m.searchMsg) + " " + infoStyle.Render("(Enter: go | Esc: cancel)")
 	} else {
 		footer = helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
 	}
-	lines = append(lines, footer)
+	footerView := footer
 
-	// Ensure we don't exceed height
-	if len(lines) > m.height {
-		lines = lines[:m.height]
-	}
+	// Assemble the whole view
+	fullView := lipgloss.JoinVertical(
+		lipgloss.Center,
+		header,
+		entropyView,
+		statusView,
+		"", // Spacer
+		contentView,
+		footerView,
+	)
 
-	return strings.Join(lines, "\n")
+	// Center the entire view within the terminal
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, fullView)
 }
 
 func main() {
@@ -459,7 +459,8 @@ func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows 
 			addr := rowOffset + int64(j)
 			if addr < fileSize {
 				val := data[addr]
-				fmt.Fprintf(w, "%s%02x%s ", getColor(val, scheme), val, "\033[0m")
+				style := getStyle(val, scheme)
+				fmt.Fprintf(w, "%s ", style.Render(fmt.Sprintf("%02x", val)))
 			} else {
 				fmt.Fprint(w, "   ")
 			}
@@ -504,7 +505,8 @@ func renderLinear(w io.Writer, data []byte, fileSize int64, offset int64, width,
 			addr := offset + int64(i*bytesPerRowGrid) + int64(j)
 			if addr < fileSize {
 				val := data[addr]
-				fmt.Fprintf(w, "%s  \033[0m", getColor(val, scheme))
+				style := getStyle(val, scheme)
+				fmt.Fprintf(w, "%s", style.Render("  "))
 			} else {
 				break
 			}
@@ -543,7 +545,8 @@ func renderHilbert(w io.Writer, data []byte, fileSize int64, offset int64, n, di
 		for y := 0; y < rowsToRender; y++ {
 			for x := 0; x < n; x++ {
 				if mask[y][x] {
-					fmt.Fprintf(w, "%s  \033[0m", getColor(grid[y][x], scheme))
+					style := getStyle(grid[y][x], scheme)
+					fmt.Fprintf(w, "%s", style.Render("  "))
 				} else {
 					fmt.Fprint(w, "  ")
 				}
@@ -606,21 +609,54 @@ func getHeaderLines(scheme colorScheme) []string {
 
 	if scheme == schemeRanges {
 		lines = append(lines, "Color-coded byte viewer (Ranges):")
-		lines = append(lines, " 00-0F: \033[41m  \033[0m 10-1F: \033[42m  \033[0m 20-2F: \033[43m  \033[0m 30-3F: \033[44m  \033[0m")
-		lines = append(lines, " 40-4F: \033[45m  \033[0m 50-5F: \033[46m  \033[0m 60-6F: \033[47m  \033[0m 70-7F: \033[1;47m  \033[0m")
-		lines = append(lines, " 80-8F: \033[41m  \033[0m 90-9F: \033[42m  \033[0m A0-AF: \033[43m  \033[0m B0-BF: \033[44m  \033[0m")
-		lines = append(lines, " C0-CF: \033[45m  \033[0m D0-DF: \033[46m  \033[0m E0-EF: \033[47m  \033[0m F0-FF: \033[1;47m  \033[0m")
+		r1 := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
+		r2 := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
+		r3 := lipgloss.NewStyle().Background(lipgloss.Color("3")).Render("  ")
+		r4 := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" 00-0F: %s 10-1F: %s 20-2F: %s 30-3F: %s", r1, r2, r3, r4))
+
+		r5 := lipgloss.NewStyle().Background(lipgloss.Color("5")).Render("  ")
+		r6 := lipgloss.NewStyle().Background(lipgloss.Color("6")).Render("  ")
+		r7 := lipgloss.NewStyle().Background(lipgloss.Color("7")).Render("  ")
+		r8 := lipgloss.NewStyle().Background(lipgloss.Color("15")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" 40-4F: %s 50-5F: %s 60-6F: %s 70-7F: %s", r5, r6, r7, r8))
+
+		lines = append(lines, fmt.Sprintf(" 80-8F: %s 90-9F: %s A0-AF: %s B0-BF: %s", r1, r2, r3, r4))
+		lines = append(lines, fmt.Sprintf(" C0-CF: %s D0-DF: %s E0-EF: %s F0-FF: %s", r5, r6, r7, r8))
 		lines = append(lines, "")
 	} else if scheme == scheme256Colors {
 		lines = append(lines, "Color-coded byte viewer (256-color):")
-		lines = append(lines, " Byte values 0-15: \033[48;5;0m  \033[0m \033[48;5;1m  \033[0m \033[48;5;2m  \033[0m \033[48;5;3m  \033[0m")
-		lines = append(lines, " Byte values 16-31: \033[48;5;16m  \033[0m \033[48;5;17m  \033[0m \033[48;5;18m  \033[0m \033[48;5;19m  \033[0m")
-		lines = append(lines, " Byte values 32-47: \033[48;5;32m  \033[0m \033[48;5;33m  \033[0m \033[48;5;34m  \033[0m \033[48;5;35m  \033[0m")
-		lines = append(lines, " Byte values 48-63: \033[48;5;48m  \033[0m \033[48;5;49m  \033[0m \033[48;5;50m  \033[0m \033[48;5;51m  \033[0m")
+		c1 := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render("  ")
+		c2 := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
+		c3 := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
+		c4 := lipgloss.NewStyle().Background(lipgloss.Color("3")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" Byte values 0-15: %s %s %s %s", c1, c2, c3, c4))
+
+		c5 := lipgloss.NewStyle().Background(lipgloss.Color("16")).Render("  ")
+		c6 := lipgloss.NewStyle().Background(lipgloss.Color("17")).Render("  ")
+		c7 := lipgloss.NewStyle().Background(lipgloss.Color("18")).Render("  ")
+		c8 := lipgloss.NewStyle().Background(lipgloss.Color("19")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" Byte values 16-31: %s %s %s %s", c5, c6, c7, c8))
+
+		c9 := lipgloss.NewStyle().Background(lipgloss.Color("32")).Render("  ")
+		c10 := lipgloss.NewStyle().Background(lipgloss.Color("33")).Render("  ")
+		c11 := lipgloss.NewStyle().Background(lipgloss.Color("34")).Render("  ")
+		c12 := lipgloss.NewStyle().Background(lipgloss.Color("35")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" Byte values 32-47: %s %s %s %s", c9, c10, c11, c12))
+
+		c13 := lipgloss.NewStyle().Background(lipgloss.Color("48")).Render("  ")
+		c14 := lipgloss.NewStyle().Background(lipgloss.Color("49")).Render("  ")
+		c15 := lipgloss.NewStyle().Background(lipgloss.Color("50")).Render("  ")
+		c16 := lipgloss.NewStyle().Background(lipgloss.Color("51")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" Byte values 48-63: %s %s %s %s", c13, c14, c15, c16))
 		lines = append(lines, "")
 	} else {
 		lines = append(lines, "Color-coded byte viewer (Printable):")
-		lines = append(lines, " Null: \033[40m  \033[0m Space: \033[44m  \033[0m Print: \033[42m  \033[0m Other: \033[41m  \033[0m")
+		nullS := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render("  ")
+		spaceS := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
+		printS := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
+		otherS := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
+		lines = append(lines, fmt.Sprintf(" Null: %s Space: %s Print: %s Other: %s", nullS, spaceS, printS, otherS))
 		lines = append(lines, "")
 		lines = append(lines, "")
 		lines = append(lines, "")
@@ -629,22 +665,22 @@ func getHeaderLines(scheme colorScheme) []string {
 	return lines
 }
 
-func getColor(value byte, scheme colorScheme) string {
+func getStyle(value byte, scheme colorScheme) lipgloss.Style {
 	if scheme == schemePrintable {
 		switch {
 		case value == 0:
-			return "\033[40m" // Null - Black
+			return lipgloss.NewStyle().Background(lipgloss.Color("0")) // Null - Black
 		case value == 32:
-			return "\033[44m" // Space - Blue
+			return lipgloss.NewStyle().Background(lipgloss.Color("4")) // Space - Blue
 		case value >= 33 && value <= 126:
-			return "\033[42m" // Printable - Green
+			return lipgloss.NewStyle().Background(lipgloss.Color("2")) // Printable - Green
 		default:
-			return "\033[41m" // Non-printable - Red
+			return lipgloss.NewStyle().Background(lipgloss.Color("1")) // Non-printable - Red
 		}
 	}
 
 	if scheme == scheme256Colors {
-		return fmt.Sprintf("\033[48;5;%dm", value)
+		return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("%d", value)))
 	}
 
 	// Use byteColors slice for ranges scheme
@@ -653,25 +689,25 @@ func getColor(value byte, scheme colorScheme) string {
 		colorIndex = len(byteColors) - 1
 	}
 
-	// Return ANSI code for the color
+	// Return lipgloss style with the color
 	colors := []string{
-		"41",   // red
-		"42",   // green
-		"43",   // yellow
-		"44",   // blue
-		"45",   // magenta
-		"46",   // cyan
-		"47",   // light gray
-		"1;47", // white (bright)
-		"41",   // red
-		"42",   // green
-		"43",   // yellow
-		"44",   // blue
-		"45",   // magenta
-		"46",   // cyan
-		"47",   // light gray
-		"1;47", // white (bright)
+		"1",  // red
+		"2",  // green
+		"3",  // yellow
+		"4",  // blue
+		"5",  // magenta
+		"6",  // cyan
+		"7",  // light gray
+		"15", // white (bright)
+		"1",  // red
+		"2",  // green
+		"3",  // yellow
+		"4",  // blue
+		"5",  // magenta
+		"6",  // cyan
+		"7",  // light gray
+		"15", // white (bright)
 	}
 
-	return "\033[" + colors[colorIndex] + "m"
+	return lipgloss.NewStyle().Background(lipgloss.Color(colors[colorIndex]))
 }

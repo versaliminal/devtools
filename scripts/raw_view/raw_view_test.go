@@ -81,7 +81,7 @@ func TestGetHeaderLines(t *testing.T) {
 	}
 }
 
-func TestGetColor(t *testing.T) {
+func TestGetStyle(t *testing.T) {
 	tests := []struct {
 		name   string
 		value  byte
@@ -126,9 +126,9 @@ func TestGetColor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getColor(tt.value, tt.scheme)
-			if result == "" {
-				t.Error("getColor returned empty string")
+			result := getStyle(tt.value, tt.scheme)
+			if result.Render("  ") == "" {
+				t.Error("getStyle returned style that renders to empty string")
 			}
 		})
 	}
