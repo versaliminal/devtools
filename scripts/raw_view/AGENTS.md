@@ -11,6 +11,8 @@ This is a Go-based terminal file viewer application that visualizes binary files
 
 This application uses the Bubble Tea TUI framework to handle rending and updates and supports multiple color-coded byte visualization.
 
+This application also calculates shannon entropy for the input file and current view and provides a comparison of the two values.
+
 Interaction is handled via the keyboard and includes the following functionality:
 - Scrolling by displayed row via arrow up and down keys
 - Scrolling by displayed page via page up and page down keys

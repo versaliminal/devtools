@@ -49,8 +49,8 @@ go tool cover -html=coverage.out
 ```
 
 ## Best Practices
-Tracking tasks
-- Always use the create-task skill to create and update tasks and sub-tasks for a project
+Planning changes
+- Always use the provided skill `create-task` to create tasks and subtasks for requested changes and update them as they are completed
 Code Organization
 - Use clear package structure
 - Follow Go naming conventions
@@ -62,3 +62,7 @@ Testing Strategy
 - Mock external dependencies when possible
 - Maintain code coverage
 - Always vet code `go vet`
+Documentation
+- Always update the README.md file (or create if it doesn't exist) to accurately describe the project and provided basic instructions for users.
+Git
+- When all tasks are complete, stage all modified files and suggest a commit message
