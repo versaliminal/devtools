@@ -323,31 +323,42 @@ func main() {
 	}
 
 	filename := os.Args[1]
+
+	m, err := newModelFromFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
+		os.Exit(1)
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// newModelFromFile creates a new model from a file
+func newModelFromFile(filename string) (*model, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening file: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("opening file: %w", err)
 	}
 	defer file.Close()
 
 	stat, err := file.Stat()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting file stats: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("getting file stats: %w", err)
 	}
 
 	fileSize := stat.Size()
 	if fileSize == 0 {
-		fmt.Println("File is empty")
-		return
+		return nil, fmt.Errorf("file is empty")
 	}
 
 	data, err := syscall.Mmap(int(file.Fd()), 0, int(fileSize), syscall.PROT_READ, syscall.MAP_PRIVATE)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error memory mapping file: %v\n", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("memory mapping file: %w", err)
 	}
-	defer syscall.Munmap(data)
 
 	ti := textinput.New()
 	ti.Placeholder = "Value..."
@@ -362,11 +373,7 @@ func main() {
 		textInput:     ti,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)
-		os.Exit(1)
-	}
+	return &m, nil
 }
 
 // Ported helper functions

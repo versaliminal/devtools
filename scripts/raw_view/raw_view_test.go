@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"math"
+	"os"
 	"testing"
 )
 
@@ -477,4 +478,55 @@ func TestRenderHilbert(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewModelFromFile(t *testing.T) {
+	// Create a temporary file for testing
+	tmpFile, err := os.CreateTemp("", "testfile")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	// Write some test content
+	testData := []byte("Test data for the application")
+	tmpFile.Write(testData)
+	tmpFile.Close()
+
+	t.Run("Valid file", func(t *testing.T) {
+		m, err := newModelFromFile(tmpFile.Name())
+		if err != nil {
+			t.Errorf("newModelFromFile() error = %v", err)
+		}
+		if m == nil {
+			t.Error("newModelFromFile() returned nil model")
+		}
+		if m.filename != tmpFile.Name() {
+			t.Errorf("Filename mismatch: got %s, want %s", m.filename, tmpFile.Name())
+		}
+		if m.fileSize != int64(len(testData)) {
+			t.Errorf("FileSize mismatch: got %d, want %d", m.fileSize, len(testData))
+		}
+	})
+
+	t.Run("Non-existent file", func(t *testing.T) {
+		_, err := newModelFromFile("/non/existent/file")
+		if err == nil {
+			t.Error("newModelFromFile() should have returned an error for non-existent file")
+		}
+	})
+
+	t.Run("Empty file", func(t *testing.T) {
+		emptyFile, err := os.CreateTemp("", "emptyfile")
+		if err != nil {
+			t.Fatalf("Failed to create empty temp file: %v", err)
+		}
+		emptyFile.Close()
+		defer os.Remove(emptyFile.Name())
+
+		_, err = newModelFromFile(emptyFile.Name())
+		if err == nil {
+			t.Error("newModelFromFile() should have returned an error for empty file")
+		}
+	})
 }

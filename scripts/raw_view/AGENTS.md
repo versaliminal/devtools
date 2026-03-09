@@ -57,23 +57,25 @@ go tool cover -html=coverage.out
 - Always use the provided skill `create-task` to create tasks and subtasks for requested changes and update them as they are completed
 
 ### Code Organization and Structure
-- Use clear package structure
 - Follow go naming conventions
 - Write idiomatic go
 - Prioritize short, single-purpose, testable functions
 - Prefer functional paradigms
 - Enforce pre-conditions
-- Implement strict error handling
+- Implement strict, precise error handling
 - Write concise, function-level comments
 - Always validate formatting using `go format`
 - Utilize yaml configuration files to store configuration
 - Store bulk data in data files instead of inline where applicable
+- Use external libraries where they simplify program design or architecture
 
 ### Testing Strategy
 - Include integration tests
 - Mock external dependencies when possible
 - Maintain code coverage
 - Always vet code `go vet`
+- Always verify the application builds
+- Always verify all tests pass
 
 ### Documentation
 - Always update the README.md file (or create if it doesn't exist) to accurately describe the project and provided basic instructions for users.
