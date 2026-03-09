@@ -1,8 +1,12 @@
 # AGENTS.md - Developer Guide
 
-This document provides guidelines for agentic coding agents working in this repository.
-
 ## Project Overview
+
+### Attributes
+Project name: raw_view
+Main file: raw_view.go
+
+### Intent and Functionality
 This is a Go-based terminal file viewer application that visualizes binary files in multiple modes:
 - **Hexdump**: Traditional hex view with 16 bytes per row
     - Includes detection of embedded file via magic
@@ -10,8 +14,6 @@ This is a Go-based terminal file viewer application that visualizes binary files
 - **Hilbert Curve**: Space-filling curve visualization
 
 This application uses the Bubble Tea TUI framework to handle rending and updates and supports multiple color-coded byte visualization.
-
-This application also calculates shannon entropy for the input file and current view and provides a comparison of the two values.
 
 Interaction is handled via the keyboard and includes the following functionality:
 - Scrolling by displayed row via arrow up and down keys
@@ -23,7 +25,6 @@ Interaction is handled via the keyboard and includes the following functionality
 - Exiting the application via escape key or q key
 
 ## Build Commands
-
 ```bash
 # Build the application
 go build -o raw_view .
@@ -51,16 +52,30 @@ go tool cover -html=coverage.out
 ```
 
 ## Best Practices
-Tracking tasks
-- Always use the create-task skill to create and update tasks and sub-tasks for a project
-Code Organization
+
+### Planning
+- Always use the provided skill `create-task` to create tasks and subtasks for requested changes and update them as they are completed
+
+### Code Organization and Structure
 - Use clear package structure
 - Follow Go naming conventions
-- Implement proper error handling
+- Implement strict error handling
 - Write minimal comments
 - Always validate formatting using `go format`
-Testing Strategy
+- Prefer short, single-purpose functions
+- Enforce pre-conditions
+- Prioritize testability
+- Utilize yaml configuration files to store configuration
+- Store bulk data in data files instead of inline where applicable
+
+### Testing Strategy
 - Include integration tests
 - Mock external dependencies when possible
 - Maintain code coverage
 - Always vet code `go vet`
+
+### Documentation
+- Always update the README.md file (or create if it doesn't exist) to accurately describe the project and provided basic instructions for users.
+
+### Version control
+- When all tasks are complete, stage all modified files in git and suggest a commit message
