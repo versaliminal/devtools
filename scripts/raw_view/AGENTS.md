@@ -58,13 +58,14 @@ go tool cover -html=coverage.out
 
 ### Code Organization and Structure
 - Use clear package structure
-- Follow Go naming conventions
-- Implement strict error handling
-- Write minimal comments
-- Always validate formatting using `go format`
-- Prefer short, single-purpose functions
+- Follow go naming conventions
+- Write idiomatic go
+- Prioritize short, single-purpose, testable functions
+- Prefer functional paradigms
 - Enforce pre-conditions
-- Prioritize testability
+- Implement strict error handling
+- Write concise, function-level comments
+- Always validate formatting using `go format`
 - Utilize yaml configuration files to store configuration
 - Store bulk data in data files instead of inline where applicable
 
