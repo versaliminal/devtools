@@ -12,11 +12,77 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/h2non/filetype"
 )
 
 const (
 	bytesPerRow = 16
+)
+
+// Define styling for better TUI appearance using lipgloss
+var (
+	// Base styles
+	baseStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("235"))
+
+	titleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("86")).
+			Bold(true).
+			Padding(0, 1)
+
+	infoStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("8")).
+			Italic(true)
+
+	helpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("7")).
+			Background(lipgloss.Color("236")).
+			Padding(0, 1)
+
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")).
+			Bold(true)
+
+	errorStatusStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("9")).
+				Bold(true)
+
+	// Text input styles
+	inputStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("234"))
+
+	inputPromptStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("86"))
+
+	// Byte rendering colors (256-color compatible)
+	byteColors = []lipgloss.Color{
+		lipgloss.Color("196"), // 0x00-0x0F red
+		lipgloss.Color("82"),  // 0x10-0x1F green
+		lipgloss.Color("226"), // 0x20-0x2F yellow
+		lipgloss.Color("21"),  // 0x30-0x3F blue
+		lipgloss.Color("201"), // 0x40-0x4F magenta
+		lipgloss.Color("51"),  // 0x50-0x5F cyan
+		lipgloss.Color("244"), // 0x60-0x6F gray
+		lipgloss.Color("255"), // 0x70-0x7F white
+		lipgloss.Color("196"), // 0x80-0x8F red
+		lipgloss.Color("82"),  // 0x90-0x9F green
+		lipgloss.Color("226"), // 0xA0-0xAF yellow
+		lipgloss.Color("21"),  // 0xB0-0xBF blue
+		lipgloss.Color("201"), // 0xC0-0xCF magenta
+		lipgloss.Color("51"),  // 0xD0-0xDF cyan
+		lipgloss.Color("244"), // 0xE0-0xEF gray
+		lipgloss.Color("255"), // 0xF0-0xFF white
+	}
+
+	printableByteColors = map[string]lipgloss.Color{
+		"null":      lipgloss.Color("0"),   // Black for null
+		"space":     lipgloss.Color("21"),  // Blue for space
+		"printable": lipgloss.Color("82"),  // Green for printable
+		"other":     lipgloss.Color("196"), // Red for non-printable
+	}
 )
 
 type viewMode int
@@ -61,6 +127,7 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Handle search/jump mode separately
 	if m.searching || m.jumping {
 		switch msg := msg.(type) {
 		case tea.KeyMsg:
@@ -99,6 +166,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searching = false
 				m.jumping = false
 				m.textInput.Blur()
+				m.searchMsg = ""
+				m.pendingOffset = -1
 				return m, nil
 			}
 		}
@@ -113,18 +182,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		// If we are showing a message, clear it.
+		// If we are showing a message, clear it on any key press
 		if m.searchMsg != "" {
 			if msg.String() == "enter" && m.pendingOffset != -1 {
 				m.offset = m.pendingOffset
 			}
 			m.searchMsg = ""
 			m.pendingOffset = -1
-			// Fall through to allow 's', 'j', and other keys to work immediately
 		}
 
 		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		case "q", "ctrl+c":
 			return m, tea.Quit
 
 		case "tab":
@@ -139,7 +207,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentScheme = schemeRanges
 			}
 
-		case "s", "S":
+		case "s":
 			m.searching = true
 			m.jumping = false
 			m.textInput.Focus()
@@ -149,7 +217,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingOffset = -1
 			return m, nil
 
-		case "j", "J":
+		case "j":
 			m.jumping = true
 			m.searching = false
 			m.textInput.Focus()
@@ -224,10 +292,10 @@ func (m model) getHilbertN() int {
 
 func (m model) View() string {
 	if m.width == 0 || m.height == 0 {
-		return "Initializing..."
+		return titleStyle.Render("Initializing...") + "\n"
 	}
 
-	headerRows := 10 // Reserve space for header and footer
+	headerRows := 11 // Reserve space for header (title + scheme info + entropy + status + spacer)
 	displayRows := m.height - headerRows
 	if displayRows < 1 {
 		displayRows = 1
@@ -237,11 +305,11 @@ func (m model) View() string {
 
 	var lines []string
 
-	// 1. Display header (6 lines)
+	// 1. Display header (title + scheme info)
 	headerLines := getHeaderLines(m.currentScheme)
 	lines = append(lines, headerLines...)
 
-	// 2. Entropy line (1 line)
+	// 2. Entropy line
 	var visibleBytes int
 	switch m.currentMode {
 	case modeHexdump:
@@ -260,9 +328,10 @@ func (m model) View() string {
 		viewEnd = m.fileSize
 	}
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
-	lines = append(lines, fmt.Sprintf("Entropy: Global: %.4f bits/byte | View: %.4f bits/byte", m.globalEntropy, viewEntropy))
+	entropyLine := fmt.Sprintf("Entropy: Global: %.4f bits/byte | View: %.4f bits/byte", m.globalEntropy, viewEntropy)
+	lines = append(lines, infoStyle.Render(entropyLine))
 
-	// 3. Mode/File line (1 line)
+	// 3. Mode/File line
 	modeName := ""
 	switch m.currentMode {
 	case modeHexdump:
@@ -272,9 +341,10 @@ func (m model) View() string {
 	case modeHilbert:
 		modeName = "Hilbert Curve"
 	}
-	lines = append(lines, fmt.Sprintf("--- File: %s | Mode: %s | Offset: %08x / %08x ---", m.filename, modeName, m.offset, m.fileSize))
+	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %08x / %08x", m.filename, modeName, m.offset, m.fileSize)
+	lines = append(lines, baseStyle.Render(statusLine))
 
-	// 4. Spacer line (1 line)
+	// 4. Spacer line
 	lines = append(lines, "")
 
 	// 5. Data rows (displayRows)
@@ -299,12 +369,14 @@ func (m model) View() string {
 
 	// 7. Footer (1 line)
 	footer := ""
-	if m.searching || m.jumping {
-		footer = m.textInput.View()
+	if m.searching {
+		footer = inputPromptStyle.Render(m.textInput.Prompt) + m.textInput.View()
+	} else if m.jumping {
+		footer = inputPromptStyle.Render(m.textInput.Prompt) + m.textInput.View()
 	} else if m.searchMsg != "" {
-		footer = m.searchMsg + " (Press any key)"
+		footer = statusStyle.Render(m.searchMsg) + " " + infoStyle.Render("(Enter: go | Esc: cancel)")
 	} else {
-		footer = "Nav: Arrows (Ln), PgUp/PgDn (Scr), Tab (Mode), / (Scheme), J (Jump), S (Search), Q (Exit)"
+		footer = helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
 	}
 	lines = append(lines, footer)
 
@@ -361,9 +433,10 @@ func newModelFromFile(filename string) (*model, error) {
 	}
 
 	ti := textinput.New()
-	ti.Placeholder = "Value..."
+	ti.Placeholder = "Enter value..."
 	ti.CharLimit = 156
-	ti.Width = 40
+	ti.Width = 50
+	ti.Prompt = "› "
 
 	m := model{
 		data:          data,
@@ -527,6 +600,10 @@ func calculateEntropy(data []byte) float64 {
 
 func getHeaderLines(scheme colorScheme) []string {
 	var lines []string
+
+	title := titleStyle.Render("Binary File Viewer")
+	lines = append(lines, title)
+
 	if scheme == schemeRanges {
 		lines = append(lines, "Color-coded byte viewer (Ranges):")
 		lines = append(lines, " 00-0F: \033[41m  \033[0m 10-1F: \033[42m  \033[0m 20-2F: \033[43m  \033[0m 30-3F: \033[44m  \033[0m")
@@ -567,44 +644,34 @@ func getColor(value byte, scheme colorScheme) string {
 	}
 
 	if scheme == scheme256Colors {
-		// Use 256-color terminal codes for better visual distinction
-		// We'll use a mapping that colors each byte value with a distinct color
-		// from the 256-color palette based on its value
 		return fmt.Sprintf("\033[48;5;%dm", value)
 	}
 
-	switch {
-	case value <= 0x0F:
-		return "\033[41m" // red
-	case value <= 0x1F:
-		return "\033[42m" // green
-	case value <= 0x2F:
-		return "\033[43m" // yellow
-	case value <= 0x3F:
-		return "\033[44m" // blue
-	case value <= 0x4F:
-		return "\033[45m" // magenta
-	case value <= 0x5F:
-		return "\033[46m" // cyan
-	case value <= 0x6F:
-		return "\033[47m" // light gray
-	case value <= 0x7F:
-		return "\033[1;47m" // white
-	case value <= 0x8F:
-		return "\033[41m" // red
-	case value <= 0x9F:
-		return "\033[42m" // green
-	case value <= 0xAF:
-		return "\033[43m" // yellow
-	case value <= 0xBF:
-		return "\033[44m" // blue
-	case value <= 0xCF:
-		return "\033[45m" // magenta
-	case value <= 0xDF:
-		return "\033[46m" // cyan
-	case value <= 0xEF:
-		return "\033[47m" // light gray
-	default:
-		return "\033[1;47m" // white
+	// Use byteColors slice for ranges scheme
+	colorIndex := int(value) / 16
+	if colorIndex >= len(byteColors) {
+		colorIndex = len(byteColors) - 1
 	}
+
+	// Return ANSI code for the color
+	colors := []string{
+		"41",   // red
+		"42",   // green
+		"43",   // yellow
+		"44",   // blue
+		"45",   // magenta
+		"46",   // cyan
+		"47",   // light gray
+		"1;47", // white (bright)
+		"41",   // red
+		"42",   // green
+		"43",   // yellow
+		"44",   // blue
+		"45",   // magenta
+		"46",   // cyan
+		"47",   // light gray
+		"1;47", // white (bright)
+	}
+
+	return "\033[" + colors[colorIndex] + "m"
 }
