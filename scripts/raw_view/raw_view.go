@@ -333,17 +333,17 @@ func (m model) View() string {
 	case modeHexdump:
 		modeName = lilacStyle.Render("Hexdump")
 	case modeLinear:
-		modeName = lilacStyle.Render("Wrapped Linear")
+		modeName = lilacStyle.Render("Linear ")
 	case modeHilbert:
-		modeName = lilacStyle.Render("Hilbert Curve")
+		modeName = lilacStyle.Render("Hilbert")
 	}
 	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %s / %s",
-		m.filename,
+		infoStyle.Render(m.filename),
 		modeName,
 		lilacStyle.Render(fmt.Sprintf("%08x", m.offset)),
 		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
 
-	headerCombined := append(headerLines, infoStyle.Render(entropyLine), baseStyle.Render(statusLine))
+	headerCombined := append(headerLines, entropyLine, baseStyle.Render(statusLine))
 	headerContent := lipgloss.JoinVertical(lipgloss.Center, headerCombined...)
 
 	// 2. Data rows
