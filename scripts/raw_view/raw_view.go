@@ -260,26 +260,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) getDisplayRows() int {
+	headerLines := getHeaderLines(m.currentScheme)
+	headerContentHeight := len(headerLines) + 2
+	fixedHeight := (headerContentHeight + 2) + (1 + 2) + 2
+	displayRows := m.height - fixedHeight
+	if displayRows < 1 {
+		displayRows = 1
+	}
+	return displayRows
+}
+
 func (m model) getStep() int64 {
+	hilbertN := m.getHilbertN()
 	switch m.currentMode {
 	case modeHexdump:
 		return int64(bytesPerRow)
 	case modeLinear:
-		return int64(m.width / 2)
+		return int64(hilbertN * 2)
 	case modeHilbert:
-		return int64(m.getHilbertN())
+		return int64(hilbertN)
 	default:
 		return 1
 	}
 }
 
 func (m model) getPageStep() int64 {
-	headerRows := 9
-	displayRows := m.height - headerRows
-	if displayRows < 1 {
-		displayRows = 1
-	}
-
+	displayRows := m.getDisplayRows()
 	switch m.currentMode {
 	case modeHilbert:
 		n := m.getHilbertN()
@@ -302,26 +309,14 @@ func (m model) View() string {
 		return titleStyle.Render("Initializing...") + "\n"
 	}
 
-	// Calculate fixed-size component heights
-	headerLines := getHeaderLines(m.currentScheme)
-	// Header Section: Title (1) + Scheme (depends) + Entropy (1) + Status (1)
-	// Plus border (2)
-	headerContentHeight := len(headerLines) + 2 // +2 for entropy and status
-
-	// Total fixed height = Header (content + 2 border) + Footer (content + 2 border) + 2 border for content
-	fixedHeight := (headerContentHeight + 2) + (1 + 2) + 2
-
-	displayRows := m.height - fixedHeight
-	if displayRows < 1 {
-		displayRows = 1
-	}
-
+	displayRows := m.getDisplayRows()
 	hilbertN := m.getHilbertN()
 
 	// 1. Header Section
-	viewEnd := m.offset + int64(displayRows*bytesPerRow) // Approximation for entropy
+	headerLines := getHeaderLines(m.currentScheme)
+	viewEnd := m.offset + int64(displayRows*bytesPerRow)
 	if m.currentMode == modeLinear {
-		viewEnd = m.offset + int64(displayRows*(m.width/2))
+		viewEnd = m.offset + int64(displayRows*(hilbertN*2))
 	} else if m.currentMode == modeHilbert {
 		viewEnd = m.offset + int64((displayRows/hilbertN)*(hilbertN*hilbertN))
 	}
@@ -329,18 +324,18 @@ func (m model) View() string {
 		viewEnd = m.fileSize
 	}
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
-	entropyLine := fmt.Sprintf("Entropy: Global: %s bits/byte | View: %s bits/byte",
+	entropyLine := fmt.Sprintf("File entropy: %s bits/byte | View entropy: %s bits/byte",
 		lilacStyle.Render(fmt.Sprintf("%.4f", m.globalEntropy)),
 		lilacStyle.Render(fmt.Sprintf("%.4f", viewEntropy)))
 
 	modeName := ""
 	switch m.currentMode {
 	case modeHexdump:
-		modeName = "Hexdump"
+		modeName = lilacStyle.Render("Hexdump")
 	case modeLinear:
-		modeName = "Wrapped Linear"
+		modeName = lilacStyle.Render("Wrapped Linear")
 	case modeHilbert:
-		modeName = "Hilbert Curve"
+		modeName = lilacStyle.Render("Hilbert Curve")
 	}
 	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %s / %s",
 		m.filename,
@@ -375,22 +370,37 @@ func (m model) View() string {
 	}
 	footerContent := footer
 
-	// Calculate max width for uniform sections
-	w1 := lipgloss.Width(headerContent)
-	w2 := lipgloss.Width(dataContent)
-	w3 := lipgloss.Width(footerContent)
-	maxWidth := w1
-	if w2 > maxWidth {
-		maxWidth = w2
+	// Calculate max width for uniform sections across mode changes
+	// Largest possible widths:
+	// Hexdump: 117
+	// Linear/Hilbert: hilbertN * 2
+	// Header/Footer content
+	wHeader := lipgloss.Width(headerContent)
+	wFooter := lipgloss.Width(footerContent)
+	wData := lipgloss.Width(dataContent)
+
+	// Potential widths for other modes
+	wHexdump := 117
+	wVisual := hilbertN * 2
+
+	maxWidth := wHeader
+	if wFooter > maxWidth {
+		maxWidth = wFooter
 	}
-	if w3 > maxWidth {
-		maxWidth = w3
+	if wData > maxWidth {
+		maxWidth = wData
+	}
+	if wHexdump > maxWidth {
+		maxWidth = wHexdump
+	}
+	if wVisual > maxWidth {
+		maxWidth = wVisual
 	}
 
 	// Apply uniform width and borders
 	headerView := borderStyle.Width(maxWidth).Align(lipgloss.Center).Render(headerContent)
 	contentView := borderStyle.Width(maxWidth).Render(dataContent)
-	footerView := borderStyle.Width(maxWidth).Render(footerContent)
+	footerView := borderStyle.Width(maxWidth).Align(lipgloss.Center).Render(footerContent)
 
 	// Assemble the whole view
 	fullView := lipgloss.JoinVertical(
