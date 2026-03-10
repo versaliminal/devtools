@@ -70,12 +70,12 @@ func TestGetHeaderLines(t *testing.T) {
 			if len(lines) == 0 {
 				t.Error("getHeaderLines returned empty slice")
 			}
-			// With title added, expect 7 lines for schemeRanges, 7 for schemePrintable
-			if tt.scheme == schemeRanges && len(lines) != 7 {
-				t.Errorf("schemeRanges expected 7 lines, got %d", len(lines))
+			// With title added, expect 3 lines for schemeRanges, 2 for schemePrintable
+			if tt.scheme == schemeRanges && len(lines) != 3 {
+				t.Errorf("schemeRanges expected 3 lines, got %d", len(lines))
 			}
-			if tt.scheme == schemePrintable && len(lines) != 7 {
-				t.Errorf("schemePrintable expected 7 lines, got %d", len(lines))
+			if tt.scheme == schemePrintable && len(lines) != 2 {
+				t.Errorf("schemePrintable expected 2 lines, got %d", len(lines))
 			}
 		})
 	}

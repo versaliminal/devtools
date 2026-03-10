@@ -349,7 +349,7 @@ func (m model) View() string {
 		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
 
 	headerCombined := append(headerLines, infoStyle.Render(entropyLine), baseStyle.Render(statusLine))
-	headerView := borderStyle.Render(lipgloss.JoinVertical(lipgloss.Left, headerCombined...))
+	headerContent := lipgloss.JoinVertical(lipgloss.Left, headerCombined...)
 
 	// 2. Data rows
 	var dataBuf strings.Builder
@@ -362,7 +362,7 @@ func (m model) View() string {
 		renderHilbert(&dataBuf, m.data, m.fileSize, m.offset, hilbertN, displayRows, m.currentScheme)
 	}
 	dataLines := strings.Split(strings.TrimSuffix(dataBuf.String(), "\n"), "\n")
-	contentView := borderStyle.Render(lipgloss.JoinVertical(lipgloss.Left, dataLines...))
+	dataContent := lipgloss.JoinVertical(lipgloss.Left, dataLines...)
 
 	// 3. Footer Section
 	footer := ""
@@ -373,7 +373,24 @@ func (m model) View() string {
 	} else {
 		footer = helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
 	}
-	footerView := borderStyle.Render(footer)
+	footerContent := footer
+
+	// Calculate max width for uniform sections
+	w1 := lipgloss.Width(headerContent)
+	w2 := lipgloss.Width(dataContent)
+	w3 := lipgloss.Width(footerContent)
+	maxWidth := w1
+	if w2 > maxWidth {
+		maxWidth = w2
+	}
+	if w3 > maxWidth {
+		maxWidth = w3
+	}
+
+	// Apply uniform width and borders
+	headerView := borderStyle.Width(maxWidth).Render(headerContent)
+	contentView := borderStyle.Width(maxWidth).Render(dataContent)
+	footerView := borderStyle.Width(maxWidth).Render(footerContent)
 
 	// Assemble the whole view
 	fullView := lipgloss.JoinVertical(
@@ -610,59 +627,31 @@ func getHeaderLines(scheme colorScheme) []string {
 	lines = append(lines, title)
 
 	if scheme == schemeRanges {
-		lines = append(lines, "Color-coded byte viewer (Ranges):")
 		r1 := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
 		r2 := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
 		r3 := lipgloss.NewStyle().Background(lipgloss.Color("3")).Render("  ")
 		r4 := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" 00-0F: %s 10-1F: %s 20-2F: %s 30-3F: %s", r1, r2, r3, r4))
-
 		r5 := lipgloss.NewStyle().Background(lipgloss.Color("5")).Render("  ")
 		r6 := lipgloss.NewStyle().Background(lipgloss.Color("6")).Render("  ")
 		r7 := lipgloss.NewStyle().Background(lipgloss.Color("7")).Render("  ")
 		r8 := lipgloss.NewStyle().Background(lipgloss.Color("15")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" 40-4F: %s 50-5F: %s 60-6F: %s 70-7F: %s", r5, r6, r7, r8))
 
-		lines = append(lines, fmt.Sprintf(" 80-8F: %s 90-9F: %s A0-AF: %s B0-BF: %s", r1, r2, r3, r4))
-		lines = append(lines, fmt.Sprintf(" C0-CF: %s D0-DF: %s E0-EF: %s F0-FF: %s", r5, r6, r7, r8))
-		lines = append(lines, "")
+		lines = append(lines, "Byte Ranges:")
+		lines = append(lines, fmt.Sprintf(" 00: %s 10: %s 20: %s 30: %s 40: %s 50: %s 60: %s 70: %s", r1, r2, r3, r4, r5, r6, r7, r8))
 	} else if scheme == scheme256Colors {
-		lines = append(lines, "Color-coded byte viewer (256-color):")
-		c1 := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render("  ")
-		c2 := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
-		c3 := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
-		c4 := lipgloss.NewStyle().Background(lipgloss.Color("3")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" Byte values 0-15: %s %s %s %s", c1, c2, c3, c4))
-
-		c5 := lipgloss.NewStyle().Background(lipgloss.Color("16")).Render("  ")
-		c6 := lipgloss.NewStyle().Background(lipgloss.Color("17")).Render("  ")
-		c7 := lipgloss.NewStyle().Background(lipgloss.Color("18")).Render("  ")
-		c8 := lipgloss.NewStyle().Background(lipgloss.Color("19")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" Byte values 16-31: %s %s %s %s", c5, c6, c7, c8))
-
-		c9 := lipgloss.NewStyle().Background(lipgloss.Color("32")).Render("  ")
-		c10 := lipgloss.NewStyle().Background(lipgloss.Color("33")).Render("  ")
-		c11 := lipgloss.NewStyle().Background(lipgloss.Color("34")).Render("  ")
-		c12 := lipgloss.NewStyle().Background(lipgloss.Color("35")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" Byte values 32-47: %s %s %s %s", c9, c10, c11, c12))
-
-		c13 := lipgloss.NewStyle().Background(lipgloss.Color("48")).Render("  ")
-		c14 := lipgloss.NewStyle().Background(lipgloss.Color("49")).Render("  ")
-		c15 := lipgloss.NewStyle().Background(lipgloss.Color("50")).Render("  ")
-		c16 := lipgloss.NewStyle().Background(lipgloss.Color("51")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" Byte values 48-63: %s %s %s %s", c13, c14, c15, c16))
-		lines = append(lines, "")
+		lines = append(lines, "256 Color Gradient (Cool to Warm):")
+		var gradient strings.Builder
+		for i := 0; i < 256; i += 8 {
+			style := getStyle(byte(i), scheme256Colors)
+			gradient.WriteString(style.Render(" "))
+		}
+		lines = append(lines, gradient.String())
 	} else {
-		lines = append(lines, "Color-coded byte viewer (Printable):")
 		nullS := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render("  ")
 		spaceS := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
 		printS := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
 		otherS := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
-		lines = append(lines, fmt.Sprintf(" Null: %s Space: %s Print: %s Other: %s", nullS, spaceS, printS, otherS))
-		lines = append(lines, "")
-		lines = append(lines, "")
-		lines = append(lines, "")
-		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("Null:%s Space:%s Print:%s Other:%s", nullS, spaceS, printS, otherS))
 	}
 	return lines
 }
@@ -682,7 +671,32 @@ func getStyle(value byte, scheme colorScheme) lipgloss.Style {
 	}
 
 	if scheme == scheme256Colors {
-		return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("%d", value)))
+		// Smooth cool-to-warm gradient
+		// 0: Blue (#0000FF), 64: Cyan (#00FFFF), 128: Green (#00FF00), 192: Yellow (#FFFF00), 255: Red (#FF0000)
+		var r, g, b int
+		v := int(value)
+		if v < 64 {
+			// Blue to Cyan
+			r = 0
+			g = v * 4
+			b = 255
+		} else if v < 128 {
+			// Cyan to Green
+			r = 0
+			g = 255
+			b = 255 - (v-64)*4
+		} else if v < 192 {
+			// Green to Yellow
+			r = (v - 128) * 4
+			g = 255
+			b = 0
+		} else {
+			// Yellow to Red
+			r = 255
+			g = 255 - (v-192)*4
+			b = 0
+		}
+		return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
 	}
 
 	// Use byteColors slice for ranges scheme
