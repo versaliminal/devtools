@@ -57,6 +57,13 @@ var (
 	inputPromptStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("86"))
 
+	lilacStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#C8A2C8"))
+
+	borderStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#C8A2C8"))
+
 	// Byte rendering colors (256-color compatible)
 	byteColors = []lipgloss.Color{
 		lipgloss.Color("196"), // 0x00-0x0F red
@@ -297,13 +304,13 @@ func (m model) View() string {
 
 	// Calculate fixed-size component heights
 	headerLines := getHeaderLines(m.currentScheme)
-	headerHeight := len(headerLines)
-	entropyHeight := 1
-	statusHeight := 1
-	spacerHeight := 1
-	footerHeight := 1
+	// Header Section: Title (1) + Scheme (depends) + Entropy (1) + Status (1)
+	// Plus border (2)
+	headerContentHeight := len(headerLines) + 2 // +2 for entropy and status
 
-	fixedHeight := headerHeight + entropyHeight + statusHeight + spacerHeight + footerHeight
+	// Total fixed height = Header (content + 2 border) + Footer (content + 2 border) + 2 border for content
+	fixedHeight := (headerContentHeight + 2) + (1 + 2) + 2
+
 	displayRows := m.height - fixedHeight
 	if displayRows < 1 {
 		displayRows = 1
@@ -311,32 +318,21 @@ func (m model) View() string {
 
 	hilbertN := m.getHilbertN()
 
-	// 1. Header
-	header := lipgloss.JoinVertical(lipgloss.Left, headerLines...)
-
-	// 2. Entropy
-	var visibleBytes int
-	switch m.currentMode {
-	case modeHexdump:
-		visibleBytes = displayRows * bytesPerRow
-	case modeLinear:
-		visibleBytes = displayRows * (m.width / 2)
-	case modeHilbert:
-		visibleBytes = (displayRows / hilbertN) * (hilbertN * hilbertN)
-		if visibleBytes == 0 {
-			visibleBytes = hilbertN * hilbertN
-		}
+	// 1. Header Section
+	viewEnd := m.offset + int64(displayRows*bytesPerRow) // Approximation for entropy
+	if m.currentMode == modeLinear {
+		viewEnd = m.offset + int64(displayRows*(m.width/2))
+	} else if m.currentMode == modeHilbert {
+		viewEnd = m.offset + int64((displayRows/hilbertN)*(hilbertN*hilbertN))
 	}
-
-	viewEnd := m.offset + int64(visibleBytes)
 	if viewEnd > m.fileSize {
 		viewEnd = m.fileSize
 	}
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
-	entropyLine := fmt.Sprintf("Entropy: Global: %.4f bits/byte | View: %.4f bits/byte", m.globalEntropy, viewEntropy)
-	entropyView := infoStyle.Render(entropyLine)
+	entropyLine := fmt.Sprintf("Entropy: Global: %s bits/byte | View: %s bits/byte",
+		lilacStyle.Render(fmt.Sprintf("%.4f", m.globalEntropy)),
+		lilacStyle.Render(fmt.Sprintf("%.4f", viewEntropy)))
 
-	// 3. Status
 	modeName := ""
 	switch m.currentMode {
 	case modeHexdump:
@@ -346,23 +342,29 @@ func (m model) View() string {
 	case modeHilbert:
 		modeName = "Hilbert Curve"
 	}
-	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %08x / %08x", m.filename, modeName, m.offset, m.fileSize)
-	statusView := baseStyle.Render(statusLine)
+	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %s / %s",
+		m.filename,
+		modeName,
+		lilacStyle.Render(fmt.Sprintf("%08x", m.offset)),
+		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
 
-	// 4. Data rows
+	headerCombined := append(headerLines, infoStyle.Render(entropyLine), baseStyle.Render(statusLine))
+	headerView := borderStyle.Render(lipgloss.JoinVertical(lipgloss.Left, headerCombined...))
+
+	// 2. Data rows
 	var dataBuf strings.Builder
 	switch m.currentMode {
 	case modeHexdump:
 		renderHexdump(&dataBuf, m.data, m.fileSize, m.offset, displayRows, m.currentScheme)
 	case modeLinear:
-		renderLinear(&dataBuf, m.data, m.fileSize, m.offset, m.width, displayRows, m.currentScheme)
+		renderLinear(&dataBuf, m.data, m.fileSize, m.offset, m.width-4, displayRows, m.currentScheme) // -4 for borders
 	case modeHilbert:
 		renderHilbert(&dataBuf, m.data, m.fileSize, m.offset, hilbertN, displayRows, m.currentScheme)
 	}
 	dataLines := strings.Split(strings.TrimSuffix(dataBuf.String(), "\n"), "\n")
-	contentView := lipgloss.JoinVertical(lipgloss.Left, dataLines...)
+	contentView := borderStyle.Render(lipgloss.JoinVertical(lipgloss.Left, dataLines...))
 
-	// 5. Footer
+	// 3. Footer Section
 	footer := ""
 	if m.searching || m.jumping {
 		footer = inputPromptStyle.Render(m.textInput.Prompt) + m.textInput.View()
@@ -371,15 +373,12 @@ func (m model) View() string {
 	} else {
 		footer = helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
 	}
-	footerView := footer
+	footerView := borderStyle.Render(footer)
 
 	// Assemble the whole view
 	fullView := lipgloss.JoinVertical(
 		lipgloss.Center,
-		header,
-		entropyView,
-		statusView,
-		"", // Spacer
+		headerView,
 		contentView,
 		footerView,
 	)
@@ -454,7 +453,7 @@ func newModelFromFile(filename string) (*model, error) {
 func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows int, scheme colorScheme) {
 	for i := 0; i < rows && (offset+int64(i*bytesPerRow)) < fileSize; i++ {
 		rowOffset := offset + int64(i*bytesPerRow)
-		fmt.Fprintf(w, "%08x: ", rowOffset)
+		fmt.Fprintf(w, "%s: ", lilacStyle.Render(fmt.Sprintf("%08x", rowOffset)))
 		for j := 0; j < bytesPerRow; j++ {
 			addr := rowOffset + int64(j)
 			if addr < fileSize {
@@ -491,7 +490,10 @@ func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows 
 				magicInfo = fmt.Sprintf(" | %s (%s)", kind.Extension, kind.MIME.Value)
 			}
 		}
-		fmt.Fprintf(w, "%s\n", magicInfo)
+		// Pad row to a consistent width to prevent centering jitter
+		// Base hexdump width: 8 (offset) + 2 (": ") + 16*3 (hex) + 3 (" | ") + 16 (ascii) = 8+2+48+3+16 = 77
+		// We'll use a fixed width for magic info area if we want stability
+		fmt.Fprintf(w, "%-40s\n", magicInfo)
 	}
 }
 
