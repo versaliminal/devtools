@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -107,6 +108,17 @@ const (
 	schemePrintable
 	scheme256Colors
 )
+
+var colors = [...]string{
+	"0",  // Black
+	"4",  // Blue
+	"6",  // Cyan
+	"2",  // Green
+	"3",  // Yellow
+	"1",  // Red
+	"5",  // Magenta
+	"15", // White
+}
 
 type model struct {
 	data          []byte
@@ -324,10 +336,6 @@ func (m model) View() string {
 		viewEnd = m.fileSize
 	}
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
-	entropyLine := fmt.Sprintf("File entropy: %s bits/byte | View entropy: %s bits/byte",
-		lilacStyle.Render(fmt.Sprintf("%.4f", m.globalEntropy)),
-		lilacStyle.Render(fmt.Sprintf("%.4f", viewEntropy)))
-
 	modeName := ""
 	switch m.currentMode {
 	case modeHexdump:
@@ -337,13 +345,16 @@ func (m model) View() string {
 	case modeHilbert:
 		modeName = lilacStyle.Render("Hilbert")
 	}
-	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %s / %s",
-		infoStyle.Render(m.filename),
+	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %s/%s | Entropy: %s/%s",
+		lilacStyle.Render(filepath.Base(m.filename)),
 		modeName,
 		lilacStyle.Render(fmt.Sprintf("%08x", m.offset)),
-		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
+		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)),
+		lilacStyle.Render(fmt.Sprintf("%.3f", viewEntropy)),
+		lilacStyle.Render(fmt.Sprintf("%.3f", m.globalEntropy)),
+	)
 
-	headerCombined := append(headerLines, entropyLine, baseStyle.Render(statusLine))
+	headerCombined := append(headerLines, baseStyle.Render(statusLine))
 	headerContent := lipgloss.JoinVertical(lipgloss.Center, headerCombined...)
 
 	// 2. Data rows
@@ -633,30 +644,22 @@ func calculateEntropy(data []byte) float64 {
 func getHeaderLines(scheme colorScheme) []string {
 	var lines []string
 
-	title := titleStyle.Render("VERSALIMINAL RAW VIEWER")
-	lines = append(lines, title)
-
-	if scheme == schemeRanges {
-		r1 := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
-		r2 := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
-		r3 := lipgloss.NewStyle().Background(lipgloss.Color("3")).Render("  ")
-		r4 := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
-		r5 := lipgloss.NewStyle().Background(lipgloss.Color("5")).Render("  ")
-		r6 := lipgloss.NewStyle().Background(lipgloss.Color("6")).Render("  ")
-		r7 := lipgloss.NewStyle().Background(lipgloss.Color("7")).Render("  ")
-		r8 := lipgloss.NewStyle().Background(lipgloss.Color("15")).Render("  ")
-
-		lines = append(lines, "Byte Ranges:")
-		lines = append(lines, fmt.Sprintf(" 00: %s 10: %s 20: %s 30: %s 40: %s 50: %s 60: %s 70: %s", r1, r2, r3, r4, r5, r6, r7, r8))
-	} else if scheme == scheme256Colors {
-		lines = append(lines, "256 Color Gradient (Cool to Warm):")
+	switch scheme {
+	case schemeRanges:
+		var mapping strings.Builder
+		for i := 0; i < 8; i++ {
+			color := colors[i]
+			mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(color)).Render(fmt.Sprintf("%02x", i*32)))
+		}
+		lines = append(lines, "Byte Value Ranges: "+mapping.String())
+	case scheme256Colors:
 		var gradient strings.Builder
 		for i := 0; i < 256; i += 8 {
 			style := getStyle(byte(i), scheme256Colors)
 			gradient.WriteString(style.Render(" "))
 		}
-		lines = append(lines, gradient.String())
-	} else {
+		lines = append(lines, "Gradient: "+gradient.String())
+	default:
 		nullS := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render("  ")
 		spaceS := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
 		printS := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
@@ -709,30 +712,9 @@ func getStyle(value byte, scheme colorScheme) lipgloss.Style {
 		return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
 	}
 
-	// Use byteColors slice for ranges scheme
-	colorIndex := int(value) / 16
-	if colorIndex >= len(byteColors) {
-		colorIndex = len(byteColors) - 1
-	}
-
-	// Return lipgloss style with the color
-	colors := []string{
-		"1",  // red
-		"2",  // green
-		"3",  // yellow
-		"4",  // blue
-		"5",  // magenta
-		"6",  // cyan
-		"7",  // light gray
-		"15", // white (bright)
-		"1",  // red
-		"2",  // green
-		"3",  // yellow
-		"4",  // blue
-		"5",  // magenta
-		"6",  // cyan
-		"7",  // light gray
-		"15", // white (bright)
+	colorIndex := int(value / 32)
+	if colorIndex >= len(colors) {
+		colorIndex = len(colors) - 1
 	}
 
 	return lipgloss.NewStyle().Background(lipgloss.Color(colors[colorIndex]))
