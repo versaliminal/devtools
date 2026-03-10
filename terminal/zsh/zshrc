@@ -1,0 +1,38 @@
+export DEV_DIR=$HOME/Dev
+export TZ="America/Chicago"
+export LANG=en_US.UTF-8
+export EDITOR='vim'
+
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="versaliminal"
+
+ENABLE_CORRECTION="true"
+COMPLETION_WAITING_DOTS="true"
+# DISABLE_UNTRACKED_FILES_DIRTY="true"
+
+plugins=(git autoenv)
+
+source $ZSH/oh-my-zsh.sh
+export ZSH_HIGHLIGHT_HIGHLIGHTERS_DIR=/opt/homebrew/share/zsh-syntax-highlighting/highlighters
+source $HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
+alias python="$HOME/.venv/bin/python"
+alias pip="$HOME/.venv/bin/pip"
+python $HOME/Dev/devtools/scripts/ascii_art_util.py -t "versaliminal" -w $(tput cols) -c versaliminal -n smooth -q
+for f in $DEV_DIR/devtools/shell/*_functions.sh; do source $f; done
+enable_git_functions
+enable_json_functions
+enable_img_functions
+enable_k8s_functions
+
+# Kubectl
+source <(kubectl completion zsh)
+alias kub="kubectl"
+
+ssh-add ~/.ssh/github
+
+alias dt="date +%F"
+
+PATH="$PATH:/Library/TeX/texbin"
+
+#cat $HOME/.issue
