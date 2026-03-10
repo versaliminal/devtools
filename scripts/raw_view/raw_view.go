@@ -28,7 +28,7 @@ var (
 			Background(lipgloss.Color("235"))
 
 	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("86")).
+			Foreground(lipgloss.Color("#C8A2C8")).
 			Bold(true).
 			Padding(0, 1)
 
@@ -349,7 +349,7 @@ func (m model) View() string {
 		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
 
 	headerCombined := append(headerLines, infoStyle.Render(entropyLine), baseStyle.Render(statusLine))
-	headerContent := lipgloss.JoinVertical(lipgloss.Left, headerCombined...)
+	headerContent := lipgloss.JoinVertical(lipgloss.Center, headerCombined...)
 
 	// 2. Data rows
 	var dataBuf strings.Builder
@@ -357,7 +357,7 @@ func (m model) View() string {
 	case modeHexdump:
 		renderHexdump(&dataBuf, m.data, m.fileSize, m.offset, displayRows, m.currentScheme)
 	case modeLinear:
-		renderLinear(&dataBuf, m.data, m.fileSize, m.offset, m.width-4, displayRows, m.currentScheme) // -4 for borders
+		renderLinear(&dataBuf, m.data, m.fileSize, m.offset, hilbertN*2, displayRows, m.currentScheme)
 	case modeHilbert:
 		renderHilbert(&dataBuf, m.data, m.fileSize, m.offset, hilbertN, displayRows, m.currentScheme)
 	}
@@ -388,7 +388,7 @@ func (m model) View() string {
 	}
 
 	// Apply uniform width and borders
-	headerView := borderStyle.Width(maxWidth).Render(headerContent)
+	headerView := borderStyle.Width(maxWidth).Align(lipgloss.Center).Render(headerContent)
 	contentView := borderStyle.Width(maxWidth).Render(dataContent)
 	footerView := borderStyle.Width(maxWidth).Render(footerContent)
 
@@ -623,7 +623,7 @@ func calculateEntropy(data []byte) float64 {
 func getHeaderLines(scheme colorScheme) []string {
 	var lines []string
 
-	title := titleStyle.Render("Binary File Viewer")
+	title := titleStyle.Render("VERSALIMINAL RAW VIEWER")
 	lines = append(lines, title)
 
 	if scheme == schemeRanges {
