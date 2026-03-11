@@ -19,11 +19,16 @@ import (
 
 const (
 	hexdumpBytesPerRow = 16
-	textColor          = "#EEEEEE"
+	blackColor         = "#000000"
+	textColor          = "#DDDDDD"
 	dimTextColor       = "#888888"
 	highlightColor     = "#cfae23"
 	borderColor        = "#a38ba3"
 	backgroundColor    = "#363239"
+	blueColor          = "4"
+	greenColor         = "2"
+	yellowColor        = "3"
+	redColor           = "1"
 )
 
 var (
@@ -240,8 +245,7 @@ func (m model) handleMessage(msg tea.Msg) (model, tea.Cmd) {
 }
 
 func (m model) getDisplayRows() int {
-	headerContentHeight := 4
-	fixedHeight := (headerContentHeight + 2) + (1 + 2) + 2
+	fixedHeight := 3 + 2 + 1 // Borders + Header + Footer
 	displayRows := m.height - fixedHeight
 	if displayRows < 1 {
 		displayRows = 1
@@ -292,9 +296,9 @@ func (m model) View() string {
 
 	maxWidth := m.calculateMaxWidth(headerContent, dataContent, footerContent, hilbertN)
 
-	headerView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(headerContent)
+	headerView := borderStyle.BorderBottom(false).Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(headerContent)
 	contentView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Render(dataContent)
-	footerView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(footerContent)
+	footerView := lipgloss.NewStyle().Width(maxWidth + 2).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(footerContent)
 
 	fullView := lipgloss.JoinVertical(lipgloss.Center, headerView, contentView, footerView)
 
@@ -305,7 +309,7 @@ func (m model) renderHeader(displayRows int, hilbertN int) string {
 	var mappingLine strings.Builder
 	mappingLine.WriteString(infoStyle.Render("Color Scheme: "))
 	mappingLine.WriteString(getColorMappingHeader(m.currentScheme))
-	mappingLine.WriteString(infoStyle.Render(""))
+	mappingLine.WriteString(infoStyle.Render(" "))
 
 	viewEnd := m.calculateViewEnd(displayRows, hilbertN)
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
@@ -313,20 +317,19 @@ func (m model) renderHeader(displayRows int, hilbertN int) string {
 	var statusLine strings.Builder
 	statusLine.WriteString(infoStyle.Render("File: "))
 	statusLine.WriteString(highlightTextStyle.Render(filepath.Base(m.filename)))
-	statusLine.WriteString(infoStyle.Render(" | Mode: "))
+	statusLine.WriteString(infoStyle.Render("   Mode: "))
 	statusLine.WriteString(highlightTextStyle.Render(m.getModeName()))
-	statusLine.WriteString(infoStyle.Render(" | Offset: "))
+	statusLine.WriteString(infoStyle.Render("   Offset: "))
 	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%08x", m.offset)))
 	statusLine.WriteString(infoStyle.Render("/"))
 	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
-	statusLine.WriteString(infoStyle.Render(" | Entropy: "))
+	statusLine.WriteString(infoStyle.Render("   Entropy: "))
 	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%.3f", viewEntropy)))
 	statusLine.WriteString(infoStyle.Render("/"))
 	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%.3f", m.globalEntropy)))
 	statusLine.WriteString(infoStyle.Render(""))
 
-	combined := append([]string{mappingLine.String()}, statusLine.String())
-	return lipgloss.JoinVertical(lipgloss.Center, combined...)
+	return mappingLine.String() + "\n" + statusLine.String()
 }
 
 func (m model) calculateViewEnd(displayRows int, hilbertN int) int64 {
@@ -601,7 +604,11 @@ func getColorMappingHeader(scheme colorScheme) string {
 	switch scheme {
 	case scheme8colors:
 		for i := 0; i < len(std8Colors); i++ {
-			mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[i])).Render(fmt.Sprintf(" %02x ", i*32)))
+			style := lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[i]))
+			if i != 0 {
+				style = style.Foreground(lipgloss.Color(blackColor))
+			}
+			mapping.WriteString(style.Render(fmt.Sprintf(" %02x ", i*32)))
 		}
 	case scheme256Colors:
 		for i := 0; i < 256; i += 8 {
@@ -609,10 +616,10 @@ func getColorMappingHeader(scheme colorScheme) string {
 			mapping.WriteString(style.Render(" "))
 		}
 	case schemePrintable:
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("0")).Foreground(lipgloss.Color("15")).Render(" NULL "))
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("4")).Foreground(lipgloss.Color("0")).Render(" SPACE "))
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("2")).Foreground(lipgloss.Color("0")).Render(" PRINT "))
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("1")).Foreground(lipgloss.Color("0")).Render(" OTHER "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(blackColor)).Foreground(lipgloss.Color(textColor)).Render(" NULL "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(blueColor)).Foreground(lipgloss.Color(blackColor)).Render(" SPACE "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(greenColor)).Foreground(lipgloss.Color(blackColor)).Render(" PRINT "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(redColor)).Foreground(lipgloss.Color(blackColor)).Render(" OTHER "))
 	}
 	return mapping.String()
 }
@@ -633,13 +640,13 @@ func getStyle(value byte, scheme colorScheme) lipgloss.Style {
 func getPrintableStyle(value byte) lipgloss.Style {
 	switch {
 	case value == 0:
-		return lipgloss.NewStyle().Background(lipgloss.Color("0")) // Null - Black
+		return lipgloss.NewStyle().Background(lipgloss.Color(blackColor)).Foreground(lipgloss.Color(textColor)) // Null - Black
 	case value == 32:
-		return lipgloss.NewStyle().Background(lipgloss.Color("4")) // Space - Blue
+		return lipgloss.NewStyle().Background(lipgloss.Color(blueColor)).Foreground(lipgloss.Color(blackColor)) // Space - Blue
 	case value >= 33 && value <= 126:
-		return lipgloss.NewStyle().Background(lipgloss.Color("2")) // Printable - Green
+		return lipgloss.NewStyle().Background(lipgloss.Color(greenColor)).Foreground(lipgloss.Color(blackColor)) // Printable - Green
 	default:
-		return lipgloss.NewStyle().Background(lipgloss.Color("1")) // Non-printable - Red
+		return lipgloss.NewStyle().Background(lipgloss.Color(redColor)).Foreground(lipgloss.Color(blackColor)) // Non-printable - Red
 	}
 }
 
@@ -667,7 +674,9 @@ func get256ColorStyle(value byte) lipgloss.Style {
 		g = 255 - (v-192)*4
 		b = 0
 	}
-	return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
+	fgColor := blackColor
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(fgColor)).
+		Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
 }
 
 func get8ColorStyle(value byte) lipgloss.Style {
@@ -675,7 +684,13 @@ func get8ColorStyle(value byte) lipgloss.Style {
 	if colorIndex >= len(std8Colors) {
 		colorIndex = len(std8Colors) - 1
 	}
-	return lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[colorIndex]))
+	style := lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[colorIndex]))
+	if colorIndex == 0 {
+		style = style.Foreground(lipgloss.Color(textColor))
+	} else {
+		style = style.Foreground(lipgloss.Color(blackColor))
+	}
+	return style
 }
 
 func main() {
