@@ -18,79 +18,47 @@ import (
 )
 
 const (
-	bytesPerRow = 16
+	hexdumpBytesPerRow = 16
+	textColor          = "#EEEEEE"
+	dimTextColor       = "#888888"
+	highlightColor     = "#cfae23"
+	borderColor        = "#a38ba3"
+	backgroundColor    = "#363239"
 )
 
-// Define styling for better TUI appearance using lipgloss
 var (
-	// Base styles
-	baseStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15")).
-			Background(lipgloss.Color("235"))
-
-	titleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#C8A2C8")).
-			Bold(true).
-			Padding(0, 1)
+	dimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(dimTextColor)).
+			Background(lipgloss.Color(backgroundColor))
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("8")).
-			Italic(true)
+			Foreground(lipgloss.Color(textColor)).
+			Background(lipgloss.Color(backgroundColor))
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("7")).
-			Background(lipgloss.Color("236")).
+			Background(lipgloss.Color(backgroundColor)).
 			Padding(0, 1)
-
-	statusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10")).
-			Bold(true)
 
 	errorStatusStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("9")).
 				Bold(true)
 
-	// Text input styles
 	inputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("15")).
-			Background(lipgloss.Color("234"))
+			Foreground(lipgloss.Color(textColor))
 
 	inputPromptStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("86"))
 
-	lilacStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#C8A2C8"))
+	highlightTextStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(highlightColor)).
+				Background(lipgloss.Color(backgroundColor)).
+				Bold(true)
 
 	borderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#C8A2C8"))
-
-	// Byte rendering colors (256-color compatible)
-	byteColors = []lipgloss.Color{
-		lipgloss.Color("196"), // 0x00-0x0F red
-		lipgloss.Color("82"),  // 0x10-0x1F green
-		lipgloss.Color("226"), // 0x20-0x2F yellow
-		lipgloss.Color("21"),  // 0x30-0x3F blue
-		lipgloss.Color("201"), // 0x40-0x4F magenta
-		lipgloss.Color("51"),  // 0x50-0x5F cyan
-		lipgloss.Color("244"), // 0x60-0x6F gray
-		lipgloss.Color("255"), // 0x70-0x7F white
-		lipgloss.Color("196"), // 0x80-0x8F red
-		lipgloss.Color("82"),  // 0x90-0x9F green
-		lipgloss.Color("226"), // 0xA0-0xAF yellow
-		lipgloss.Color("21"),  // 0xB0-0xBF blue
-		lipgloss.Color("201"), // 0xC0-0xCF magenta
-		lipgloss.Color("51"),  // 0xD0-0xDF cyan
-		lipgloss.Color("244"), // 0xE0-0xEF gray
-		lipgloss.Color("255"), // 0xF0-0xFF white
-	}
-
-	printableByteColors = map[string]lipgloss.Color{
-		"null":      lipgloss.Color("0"),   // Black for null
-		"space":     lipgloss.Color("21"),  // Blue for space
-		"printable": lipgloss.Color("82"),  // Green for printable
-		"other":     lipgloss.Color("196"), // Red for non-printable
-	}
+			BorderForeground(lipgloss.Color(borderColor)).
+			BorderBackground(lipgloss.Color(backgroundColor))
 )
 
 type viewMode int
@@ -99,17 +67,19 @@ const (
 	modeHexdump viewMode = iota
 	modeLinear
 	modeHilbert
+	countOfViewModes
 )
 
 type colorScheme int
 
 const (
-	schemeRanges colorScheme = iota
-	schemePrintable
+	scheme8colors colorScheme = iota
 	scheme256Colors
+	schemePrintable
+	countOfColorSchemes
 )
 
-var colors = [...]string{
+var std8Colors = [...]string{
 	"0",  // Black
 	"4",  // Blue
 	"6",  // Cyan
@@ -144,56 +114,73 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
+	var cmd tea.Cmd = nil
+	var model model = m
 
-	// Handle search/jump mode separately
 	if m.searching || m.jumping {
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "enter":
-				if m.searching {
-					searchStr := m.textInput.Value()
-					if searchStr != "" {
-						idx := bytes.Index(m.data, []byte(searchStr))
-						if idx != -1 {
-							m.pendingOffset = int64(idx)
-							m.searchMsg = fmt.Sprintf("Found at offset: %08x. Press Enter to go.", idx)
-						} else {
-							m.searchMsg = "String not found."
-							m.pendingOffset = -1
-						}
-					}
-					m.searching = false
-				} else if m.jumping {
-					hexStr := strings.TrimSpace(m.textInput.Value())
-					if hexStr != "" {
-						newOffset, err := strconv.ParseInt(strings.TrimPrefix(hexStr, "0x"), 16, 64)
-						if err == nil {
-							m.pendingOffset = newOffset
-							m.searchMsg = fmt.Sprintf("Jump to offset: %08x. Press Enter to go.", newOffset)
-						} else {
-							m.searchMsg = "Invalid hex offset."
-							m.pendingOffset = -1
-						}
-					}
-					m.jumping = false
-				}
-				m.textInput.Blur()
-				return m, nil
-			case "esc":
-				m.searching = false
-				m.jumping = false
-				m.textInput.Blur()
-				m.searchMsg = ""
-				m.pendingOffset = -1
-				return m, nil
-			}
-		}
-		m.textInput, cmd = m.textInput.Update(msg)
-		return m, cmd
+		model, cmd = m.handleSearchInput(msg)
+	} else {
+		model, cmd = m.handleMessage(msg)
 	}
 
+	if model.offset < 0 || model.fileSize == 0 {
+		model.offset = 0
+	} else if model.offset >= model.fileSize {
+		model.offset = model.fileSize - 1
+	}
+
+	return model, cmd
+}
+
+func (m model) handleSearchInput(msg tea.Msg) (model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			if m.searching {
+				searchStr := m.textInput.Value()
+				if searchStr != "" {
+					idx := bytes.Index(m.data, []byte(searchStr))
+					if idx != -1 {
+						m.pendingOffset = int64(idx)
+						m.searchMsg = fmt.Sprintf("Found at offset: %08x (Enter: go | ESC: cancel)", idx)
+					} else {
+						m.searchMsg = "String not found."
+						m.pendingOffset = -1
+					}
+				}
+				m.searching = false
+			} else if m.jumping {
+				hexStr := strings.TrimSpace(m.textInput.Value())
+				if hexStr != "" {
+					newOffset, err := strconv.ParseInt(strings.TrimPrefix(hexStr, "0x"), 16, 64)
+					if err == nil {
+						m.pendingOffset = newOffset
+						m.searchMsg = fmt.Sprintf("Jump to offset: %08x (Enter: go | ESC: cancel)", newOffset)
+					} else {
+						m.searchMsg = "Invalid hex offset."
+						m.pendingOffset = -1
+					}
+				}
+				m.jumping = false
+			}
+			m.textInput.Blur()
+			return m, nil
+		case "esc":
+			m.searching = false
+			m.jumping = false
+			m.textInput.Blur()
+			m.searchMsg = ""
+			m.pendingOffset = -1
+			return m, nil
+		}
+	}
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleMessage(msg tea.Msg) (model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -215,16 +202,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "tab":
-			m.currentMode = (m.currentMode + 1) % 3
-
+			m.currentMode = (m.currentMode + 1) % countOfViewModes
 		case "/":
-			if m.currentScheme == schemeRanges {
-				m.currentScheme = schemePrintable
-			} else if m.currentScheme == schemePrintable {
-				m.currentScheme = scheme256Colors
-			} else {
-				m.currentScheme = schemeRanges
-			}
+			m.currentScheme = (m.currentScheme + 1) % countOfColorSchemes
 
 		case "s":
 			m.searching = true
@@ -256,25 +236,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.offset += m.getPageStep()
 		}
 	}
-
-	// Boundary checks
-	if m.offset < 0 {
-		m.offset = 0
-	}
-	if m.fileSize > 0 {
-		if m.offset >= m.fileSize {
-			m.offset = ((m.fileSize - 1) / 16) * 16
-		}
-	} else {
-		m.offset = 0
-	}
-
 	return m, nil
 }
 
 func (m model) getDisplayRows() int {
-	headerLines := getHeaderLines(m.currentScheme)
-	headerContentHeight := len(headerLines) + 2
+	headerContentHeight := 4
 	fixedHeight := (headerContentHeight + 2) + (1 + 2) + 2
 	displayRows := m.height - fixedHeight
 	if displayRows < 1 {
@@ -287,7 +253,7 @@ func (m model) getStep() int64 {
 	hilbertN := m.getHilbertN()
 	switch m.currentMode {
 	case modeHexdump:
-		return int64(bytesPerRow)
+		return int64(hexdumpBytesPerRow)
 	case modeLinear:
 		return int64(hilbertN * 2)
 	case modeHilbert:
@@ -317,47 +283,83 @@ func (m model) getHilbertN() int {
 }
 
 func (m model) View() string {
-	if m.width == 0 || m.height == 0 {
-		return titleStyle.Render("Initializing...") + "\n"
-	}
-
 	displayRows := m.getDisplayRows()
 	hilbertN := m.getHilbertN()
 
-	// 1. Header Section
-	headerLines := getHeaderLines(m.currentScheme)
-	viewEnd := m.offset + int64(displayRows*bytesPerRow)
-	if m.currentMode == modeLinear {
-		viewEnd = m.offset + int64(displayRows*(hilbertN*2))
-	} else if m.currentMode == modeHilbert {
-		viewEnd = m.offset + int64((displayRows/hilbertN)*(hilbertN*hilbertN))
-	}
-	if viewEnd > m.fileSize {
-		viewEnd = m.fileSize
-	}
+	headerContent := m.renderHeader(displayRows, hilbertN)
+	dataContent := m.renderData(displayRows, hilbertN)
+	footerContent := m.renderFooter()
+
+	maxWidth := m.calculateMaxWidth(headerContent, dataContent, footerContent, hilbertN)
+
+	headerView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(headerContent)
+	contentView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Render(dataContent)
+	footerView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(footerContent)
+
+	fullView := lipgloss.JoinVertical(lipgloss.Center, headerView, contentView, footerView)
+
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, fullView)
+}
+
+func (m model) renderHeader(displayRows int, hilbertN int) string {
+	var mappingLine strings.Builder
+	mappingLine.WriteString(infoStyle.Render("Color Scheme: "))
+	mappingLine.WriteString(getColorMappingHeader(m.currentScheme))
+	mappingLine.WriteString(infoStyle.Render(""))
+
+	viewEnd := m.calculateViewEnd(displayRows, hilbertN)
 	viewEntropy := calculateEntropy(m.data[m.offset:viewEnd])
-	modeName := ""
+
+	var statusLine strings.Builder
+	statusLine.WriteString(infoStyle.Render("File: "))
+	statusLine.WriteString(highlightTextStyle.Render(filepath.Base(m.filename)))
+	statusLine.WriteString(infoStyle.Render(" | Mode: "))
+	statusLine.WriteString(highlightTextStyle.Render(m.getModeName()))
+	statusLine.WriteString(infoStyle.Render(" | Offset: "))
+	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%08x", m.offset)))
+	statusLine.WriteString(infoStyle.Render("/"))
+	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%08x", m.fileSize)))
+	statusLine.WriteString(infoStyle.Render(" | Entropy: "))
+	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%.3f", viewEntropy)))
+	statusLine.WriteString(infoStyle.Render("/"))
+	statusLine.WriteString(highlightTextStyle.Render(fmt.Sprintf("%.3f", m.globalEntropy)))
+	statusLine.WriteString(infoStyle.Render(""))
+
+	combined := append([]string{mappingLine.String()}, statusLine.String())
+	return lipgloss.JoinVertical(lipgloss.Center, combined...)
+}
+
+func (m model) calculateViewEnd(displayRows int, hilbertN int) int64 {
+	var visibleBytes int
 	switch m.currentMode {
 	case modeHexdump:
-		modeName = lilacStyle.Render("Hexdump")
+		visibleBytes = displayRows * hexdumpBytesPerRow
 	case modeLinear:
-		modeName = lilacStyle.Render("Linear ")
+		visibleBytes = displayRows * (hilbertN * 2)
 	case modeHilbert:
-		modeName = lilacStyle.Render("Hilbert")
+		visibleBytes = (displayRows / hilbertN) * (hilbertN * hilbertN)
 	}
-	statusLine := fmt.Sprintf("File: %s | Mode: %s | Offset: %s/%s | Entropy: %s/%s",
-		lilacStyle.Render(filepath.Base(m.filename)),
-		modeName,
-		lilacStyle.Render(fmt.Sprintf("%08x", m.offset)),
-		lilacStyle.Render(fmt.Sprintf("%08x", m.fileSize)),
-		lilacStyle.Render(fmt.Sprintf("%.3f", viewEntropy)),
-		lilacStyle.Render(fmt.Sprintf("%.3f", m.globalEntropy)),
-	)
+	viewEnd := m.offset + int64(visibleBytes)
+	if viewEnd > m.fileSize {
+		return m.fileSize
+	}
+	return viewEnd
+}
 
-	headerCombined := append(headerLines, baseStyle.Render(statusLine))
-	headerContent := lipgloss.JoinVertical(lipgloss.Center, headerCombined...)
+func (m model) getModeName() string {
+	switch m.currentMode {
+	case modeHexdump:
+		return "Hexdump"
+	case modeLinear:
+		return "Linear "
+	case modeHilbert:
+		return "Hilbert"
+	default:
+		return "Unknown"
+	}
+}
 
-	// 2. Data rows
+func (m model) renderData(displayRows int, hilbertN int) string {
 	var dataBuf strings.Builder
 	switch m.currentMode {
 	case modeHexdump:
@@ -367,83 +369,34 @@ func (m model) View() string {
 	case modeHilbert:
 		renderHilbert(&dataBuf, m.data, m.fileSize, m.offset, hilbertN, displayRows, m.currentScheme)
 	}
-	dataLines := strings.Split(strings.TrimSuffix(dataBuf.String(), "\n"), "\n")
-	dataContent := lipgloss.JoinVertical(lipgloss.Left, dataLines...)
-
-	// 3. Footer Section
-	footer := ""
-	if m.searching || m.jumping {
-		footer = inputPromptStyle.Render(m.textInput.Prompt) + m.textInput.View()
-	} else if m.searchMsg != "" {
-		footer = statusStyle.Render(m.searchMsg) + " " + infoStyle.Render("(Enter: go | Esc: cancel)")
-	} else {
-		footer = helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
-	}
-	footerContent := footer
-
-	// Calculate max width for uniform sections across mode changes
-	// Largest possible widths:
-	// Hexdump: 117
-	// Linear/Hilbert: hilbertN * 2
-	// Header/Footer content
-	wHeader := lipgloss.Width(headerContent)
-	wFooter := lipgloss.Width(footerContent)
-	wData := lipgloss.Width(dataContent)
-
-	// Potential widths for other modes
-	wHexdump := 117
-	wVisual := hilbertN * 2
-
-	maxWidth := wHeader
-	if wFooter > maxWidth {
-		maxWidth = wFooter
-	}
-	if wData > maxWidth {
-		maxWidth = wData
-	}
-	if wHexdump > maxWidth {
-		maxWidth = wHexdump
-	}
-	if wVisual > maxWidth {
-		maxWidth = wVisual
-	}
-
-	// Apply uniform width and borders
-	headerView := borderStyle.Width(maxWidth).Align(lipgloss.Center).Render(headerContent)
-	contentView := borderStyle.Width(maxWidth).Render(dataContent)
-	footerView := borderStyle.Width(maxWidth).Align(lipgloss.Center).Render(footerContent)
-
-	// Assemble the whole view
-	fullView := lipgloss.JoinVertical(
-		lipgloss.Center,
-		headerView,
-		contentView,
-		footerView,
-	)
-
-	// Center the entire view within the terminal
-	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, fullView)
+	return strings.TrimSuffix(dataBuf.String(), "\n")
 }
 
-func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s <filename>\n", os.Args[0])
-		os.Exit(1)
+func (m model) renderFooter() string {
+	if m.searching || m.jumping {
+		return m.textInput.View()
 	}
-
-	filename := os.Args[1]
-
-	m, err := newModelFromFile(filename)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
-		os.Exit(1)
+	if m.searchMsg != "" {
+		return helpStyle.Render(m.searchMsg)
 	}
+	return helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
+}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)
-		os.Exit(1)
+func (m model) calculateMaxWidth(header, data, footer string, hilbertN int) int {
+	widths := []int{
+		lipgloss.Width(header),
+		lipgloss.Width(data),
+		lipgloss.Width(footer),
+		117,          // Fixed Hexdump width
+		hilbertN * 2, // Visual mode width
 	}
+	max := 0
+	for _, w := range widths {
+		if w > max {
+			max = w
+		}
+	}
+	return max
 }
 
 // newModelFromFile creates a new model from a file
@@ -489,28 +442,30 @@ func newModelFromFile(filename string) (*model, error) {
 // Ported helper functions
 
 func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows int, scheme colorScheme) {
-	for i := 0; i < rows && (offset+int64(i*bytesPerRow)) < fileSize; i++ {
-		rowOffset := offset + int64(i*bytesPerRow)
-		fmt.Fprintf(w, "%s: ", lilacStyle.Render(fmt.Sprintf("%08x", rowOffset)))
-		for j := 0; j < bytesPerRow; j++ {
+	for i := 0; i < rows && (offset+int64(i*hexdumpBytesPerRow)) < fileSize; i++ {
+		rowOffset := offset + int64(i*hexdumpBytesPerRow)
+		offsetStr := fmt.Sprintf("%x", rowOffset)
+		offsetPad := "00000000"
+		fmt.Fprintf(w, infoStyle.Render("%s%s%s"), dimStyle.Render(offsetPad[:8-len(offsetStr)]), infoStyle.Render(offsetStr), dimStyle.Render(": "))
+		for j := 0; j < hexdumpBytesPerRow; j++ {
 			addr := rowOffset + int64(j)
 			if addr < fileSize {
 				val := data[addr]
 				style := getStyle(val, scheme)
-				fmt.Fprintf(w, "%s ", style.Render(fmt.Sprintf("%02x", val)))
+				fmt.Fprintf(w, "%s%s", style.Render(fmt.Sprintf("%02x", val)), dimStyle.Render(" "))
 			} else {
 				fmt.Fprint(w, "   ")
 			}
 		}
-		fmt.Fprint(w, " | ")
-		for j := 0; j < bytesPerRow; j++ {
+		fmt.Fprint(w, dimStyle.Render(" | "))
+		for j := 0; j < hexdumpBytesPerRow; j++ {
 			addr := rowOffset + int64(j)
 			if addr < fileSize {
 				val := data[addr]
 				if val >= 32 && val <= 126 {
-					fmt.Fprintf(w, "%c", val)
+					fmt.Fprintf(w, infoStyle.Render("%c"), val)
 				} else {
-					fmt.Fprint(w, ".")
+					fmt.Fprint(w, dimStyle.Render("."))
 				}
 			} else {
 				fmt.Fprint(w, " ")
@@ -525,13 +480,13 @@ func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows 
 			}
 			kind, _ := filetype.Match(data[rowOffset : rowOffset+int64(detectLen)])
 			if kind != filetype.Unknown {
-				magicInfo = fmt.Sprintf(" | %s (%s)", kind.Extension, kind.MIME.Value)
+				magicInfo = fmt.Sprintf("%s (%s)", kind.Extension, kind.MIME.Value)
 			}
 		}
 		// Pad row to a consistent width to prevent centering jitter
 		// Base hexdump width: 8 (offset) + 2 (": ") + 16*3 (hex) + 3 (" | ") + 16 (ascii) = 8+2+48+3+16 = 77
 		// We'll use a fixed width for magic info area if we want stability
-		fmt.Fprintf(w, "%-40s\n", magicInfo)
+		fmt.Fprintf(w, "%s%s\n", dimStyle.Render(" | "), highlightTextStyle.Render(magicInfo))
 	}
 }
 
@@ -641,81 +596,105 @@ func calculateEntropy(data []byte) float64 {
 	return entropy
 }
 
-func getHeaderLines(scheme colorScheme) []string {
-	var lines []string
-
+func getColorMappingHeader(scheme colorScheme) string {
+	var mapping strings.Builder
 	switch scheme {
-	case schemeRanges:
-		var mapping strings.Builder
-		for i := 0; i < 8; i++ {
-			color := colors[i]
-			mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(color)).Render(fmt.Sprintf("%02x", i*32)))
+	case scheme8colors:
+		for i := 0; i < len(std8Colors); i++ {
+			mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[i])).Render(fmt.Sprintf(" %02x ", i*32)))
 		}
-		lines = append(lines, "Byte Value Ranges: "+mapping.String())
 	case scheme256Colors:
-		var gradient strings.Builder
 		for i := 0; i < 256; i += 8 {
 			style := getStyle(byte(i), scheme256Colors)
-			gradient.WriteString(style.Render(" "))
+			mapping.WriteString(style.Render(" "))
 		}
-		lines = append(lines, "Gradient: "+gradient.String())
-	default:
-		nullS := lipgloss.NewStyle().Background(lipgloss.Color("0")).Render("  ")
-		spaceS := lipgloss.NewStyle().Background(lipgloss.Color("4")).Render("  ")
-		printS := lipgloss.NewStyle().Background(lipgloss.Color("2")).Render("  ")
-		otherS := lipgloss.NewStyle().Background(lipgloss.Color("1")).Render("  ")
-		lines = append(lines, fmt.Sprintf("Null:%s Space:%s Print:%s Other:%s", nullS, spaceS, printS, otherS))
+	case schemePrintable:
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("0")).Foreground(lipgloss.Color("15")).Render(" NULL "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("4")).Foreground(lipgloss.Color("0")).Render(" SPACE "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("2")).Foreground(lipgloss.Color("0")).Render(" PRINT "))
+		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color("1")).Foreground(lipgloss.Color("0")).Render(" OTHER "))
 	}
-	return lines
+	return mapping.String()
 }
 
 func getStyle(value byte, scheme colorScheme) lipgloss.Style {
-	if scheme == schemePrintable {
-		switch {
-		case value == 0:
-			return lipgloss.NewStyle().Background(lipgloss.Color("0")) // Null - Black
-		case value == 32:
-			return lipgloss.NewStyle().Background(lipgloss.Color("4")) // Space - Blue
-		case value >= 33 && value <= 126:
-			return lipgloss.NewStyle().Background(lipgloss.Color("2")) // Printable - Green
-		default:
-			return lipgloss.NewStyle().Background(lipgloss.Color("1")) // Non-printable - Red
-		}
+	switch scheme {
+	case schemePrintable:
+		return getPrintableStyle(value)
+	case scheme256Colors:
+		return get256ColorStyle(value)
+	case scheme8colors:
+		fallthrough
+	default:
+		return get8ColorStyle(value)
 	}
+}
 
-	if scheme == scheme256Colors {
-		// Smooth cool-to-warm gradient
-		// 0: Blue (#0000FF), 64: Cyan (#00FFFF), 128: Green (#00FF00), 192: Yellow (#FFFF00), 255: Red (#FF0000)
-		var r, g, b int
-		v := int(value)
-		if v < 64 {
-			// Blue to Cyan
-			r = 0
-			g = v * 4
-			b = 255
-		} else if v < 128 {
-			// Cyan to Green
-			r = 0
-			g = 255
-			b = 255 - (v-64)*4
-		} else if v < 192 {
-			// Green to Yellow
-			r = (v - 128) * 4
-			g = 255
-			b = 0
-		} else {
-			// Yellow to Red
-			r = 255
-			g = 255 - (v-192)*4
-			b = 0
-		}
-		return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
+func getPrintableStyle(value byte) lipgloss.Style {
+	switch {
+	case value == 0:
+		return lipgloss.NewStyle().Background(lipgloss.Color("0")) // Null - Black
+	case value == 32:
+		return lipgloss.NewStyle().Background(lipgloss.Color("4")) // Space - Blue
+	case value >= 33 && value <= 126:
+		return lipgloss.NewStyle().Background(lipgloss.Color("2")) // Printable - Green
+	default:
+		return lipgloss.NewStyle().Background(lipgloss.Color("1")) // Non-printable - Red
 	}
+}
 
+func get256ColorStyle(value byte) lipgloss.Style {
+	var r, g, b int
+	v := int(value)
+	if v < 64 {
+		// Blue to Cyan
+		r = 0
+		g = v * 4
+		b = 255
+	} else if v < 128 {
+		// Cyan to Green
+		r = 0
+		g = 255
+		b = 255 - (v-64)*4
+	} else if v < 192 {
+		// Green to Yellow
+		r = (v - 128) * 4
+		g = 255
+		b = 0
+	} else {
+		// Yellow to Red
+		r = 255
+		g = 255 - (v-192)*4
+		b = 0
+	}
+	return lipgloss.NewStyle().Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
+}
+
+func get8ColorStyle(value byte) lipgloss.Style {
 	colorIndex := int(value / 32)
-	if colorIndex >= len(colors) {
-		colorIndex = len(colors) - 1
+	if colorIndex >= len(std8Colors) {
+		colorIndex = len(std8Colors) - 1
+	}
+	return lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[colorIndex]))
+}
+
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Fprintf(os.Stderr, "Usage: %s <filename>\n", os.Args[0])
+		os.Exit(1)
 	}
 
-	return lipgloss.NewStyle().Background(lipgloss.Color(colors[colorIndex]))
+	filename := os.Args[1]
+
+	m, err := newModelFromFile(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
+		os.Exit(1)
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)
+		os.Exit(1)
+	}
 }

@@ -56,7 +56,7 @@ func TestGetHeaderLines(t *testing.T) {
 	}{
 		{
 			name:   "schemeRanges",
-			scheme: schemeRanges,
+			scheme: scheme8colors,
 		},
 		{
 			name:   "schemePrintable",
@@ -66,72 +66,105 @@ func TestGetHeaderLines(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lines := getHeaderLines(tt.scheme)
+			lines := getColorMappingHeader(tt.scheme)
 			if len(lines) == 0 {
 				t.Error("getHeaderLines returned empty slice")
 			}
-			// With title added, expect 3 lines for schemeRanges, 2 for schemePrintable
-			if tt.scheme == schemeRanges && len(lines) != 3 {
-				t.Errorf("schemeRanges expected 3 lines, got %d", len(lines))
-			}
-			if tt.scheme == schemePrintable && len(lines) != 2 {
-				t.Errorf("schemePrintable expected 2 lines, got %d", len(lines))
+			// Title is now rendered in renderHeader, so getHeaderLines only returns 1 line
+			if len(lines) != 1 {
+				t.Errorf("expected 1 line, got %d", len(lines))
 			}
 		})
 	}
 }
 
 func TestGetStyle(t *testing.T) {
-	tests := []struct {
-		name   string
-		value  byte
-		scheme colorScheme
-	}{
-		{
-			name:   "printable null",
-			value:  0,
-			scheme: schemePrintable,
-		},
-		{
-			name:   "printable space",
-			value:  32,
-			scheme: schemePrintable,
-		},
-		{
-			name:   "printable char",
-			value:  65,
-			scheme: schemePrintable,
-		},
-		{
-			name:   "printable non-printable",
-			value:  127,
-			scheme: schemePrintable,
-		},
-		{
-			name:   "ranges low",
-			value:  0x0F,
-			scheme: schemeRanges,
-		},
-		{
-			name:   "ranges mid",
-			value:  0x4F,
-			scheme: schemeRanges,
-		},
-		{
-			name:   "ranges high",
-			value:  0xFF,
-			scheme: schemeRanges,
-		},
+	schemes := []colorScheme{schemePrintable, scheme256Colors, scheme8colors}
+	for _, s := range schemes {
+		style := getStyle(0xAA, s)
+		if style.Render(" ") == "" {
+			t.Errorf("getStyle(0xAA, %v) returned empty style", s)
+		}
+	}
+}
+
+func TestGetStyleFunctions(t *testing.T) {
+	t.Run("getPrintableStyle", func(t *testing.T) {
+		values := []byte{0, 32, 65, 127}
+		for _, v := range values {
+			style := getPrintableStyle(v)
+			if style.Render(" ") == "" {
+				t.Errorf("getPrintableStyle(%d) returned empty style", v)
+			}
+		}
+	})
+
+	t.Run("get256ColorStyle", func(t *testing.T) {
+		values := []byte{0, 64, 128, 192, 255}
+		for _, v := range values {
+			style := get256ColorStyle(v)
+			if style.Render(" ") == "" {
+				t.Errorf("get256ColorStyle(%d) returned empty style", v)
+			}
+		}
+	})
+
+	t.Run("getRangeStyle", func(t *testing.T) {
+		values := []byte{0, 64, 128, 192, 255}
+		for _, v := range values {
+			style := get8ColorStyle(v)
+			if style.Render(" ") == "" {
+				t.Errorf("getRangeStyle(%d) returned empty style", v)
+			}
+		}
+	})
+}
+
+func TestModelViewHelpers(t *testing.T) {
+	m := model{
+		width:    80,
+		height:   24,
+		fileSize: 1000,
+		filename: "test.bin",
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := getStyle(tt.value, tt.scheme)
-			if result.Render("  ") == "" {
-				t.Error("getStyle returned style that renders to empty string")
-			}
-		})
-	}
+	t.Run("getModeName", func(t *testing.T) {
+		m.currentMode = modeHexdump
+		if m.getModeName() == "" {
+			t.Error("getModeName() returned empty string for Hexdump")
+		}
+	})
+
+	t.Run("calculateViewEnd", func(t *testing.T) {
+		m.offset = 0
+		displayRows := 10
+		hilbertN := 4
+
+		m.currentMode = modeHexdump
+		end := m.calculateViewEnd(displayRows, hilbertN)
+		if end != 160 {
+			t.Errorf("calculateViewEnd(Hexdump) = %d, want 160", end)
+		}
+
+		m.currentMode = modeLinear
+		end = m.calculateViewEnd(displayRows, hilbertN)
+		if end != 80 {
+			t.Errorf("calculateViewEnd(Linear) = %d, want 80", end)
+		}
+
+		m.currentMode = modeHilbert
+		end = m.calculateViewEnd(displayRows, hilbertN)
+		if end != 32 { // (10/4)*16 = 2*16 = 32
+			t.Errorf("calculateViewEnd(Hilbert) = %d, want 32", end)
+		}
+	})
+
+	t.Run("calculateMaxWidth", func(t *testing.T) {
+		w := m.calculateMaxWidth("short", "longer data", "footer", 4)
+		if w < 117 {
+			t.Errorf("calculateMaxWidth = %d, want at least 117 (hexdump width)", w)
+		}
+	})
 }
 
 func TestRot(t *testing.T) {
@@ -381,7 +414,7 @@ func TestRenderHexdump(t *testing.T) {
 			name:   "basic render",
 			offset: 0,
 			rows:   3,
-			scheme: schemeRanges,
+			scheme: scheme8colors,
 		},
 		{
 			name:   "with offset",
@@ -419,7 +452,7 @@ func TestRenderLinear(t *testing.T) {
 			offset: 0,
 			width:  40,
 			rows:   3,
-			scheme: schemeRanges,
+			scheme: scheme8colors,
 		},
 		{
 			name:   "small width",
@@ -458,7 +491,7 @@ func TestRenderHilbert(t *testing.T) {
 			n:      4,
 			offset: 0,
 			rows:   4,
-			scheme: schemeRanges,
+			scheme: scheme8colors,
 		},
 		{
 			name:   "with offset",
