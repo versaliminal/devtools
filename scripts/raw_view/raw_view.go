@@ -19,51 +19,67 @@ import (
 
 const (
 	hexdumpBytesPerRow = 16
-	blackColor         = "#000000"
-	textColor          = "#DDDDDD"
-	dimTextColor       = "#888888"
-	highlightColor     = "#cfae23"
-	borderColor        = "#a38ba3"
-	backgroundColor    = "#363239"
-	blueColor          = "4"
-	greenColor         = "2"
-	yellowColor        = "3"
-	redColor           = "1"
+
+	lipBgColor        = lipgloss.Color("#363239")
+	lipTextColor      = lipgloss.Color("#DDDDDD")
+	lipHighlightColor = lipgloss.Color("#cfae23")
+	lipBorderColor    = lipgloss.Color("#a38ba3")
+	lipDimTextColor   = lipgloss.Color("#888888")
+	lipBlackColor     = lipgloss.Color("#000000")
+	lipBlueColor      = lipgloss.Color("4")
+	lipGreenColor     = lipgloss.Color("2")
+	lipYellowColor    = lipgloss.Color("3")
+	lipRedColor       = lipgloss.Color("1")
 )
 
 var (
 	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(dimTextColor)).
-			Background(lipgloss.Color(backgroundColor))
+			Foreground(lipDimTextColor).
+			Background(lipBgColor)
 
 	infoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textColor)).
-			Background(lipgloss.Color(backgroundColor))
+			Foreground(lipTextColor).
+			Background(lipBgColor)
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("7")).
-			Background(lipgloss.Color(backgroundColor)).
+			Background(lipBgColor).
 			Padding(0, 1)
 
 	errorStatusStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("9")).
-				Bold(true)
+				Bold(true).
+				Background(lipBgColor)
 
 	inputStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(textColor))
-
-	inputPromptStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("86"))
+			Foreground(lipHighlightColor).
+			Background(lipBorderColor)
 
 	highlightTextStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(highlightColor)).
-				Background(lipgloss.Color(backgroundColor)).
+				Foreground(lipHighlightColor).
+				Background(lipBgColor).
 				Bold(true)
 
 	borderStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(borderColor)).
-			BorderBackground(lipgloss.Color(backgroundColor))
+			BorderForeground(lipBorderColor).
+			BorderBackground(lipBgColor)
+
+	blackByteStyle = lipgloss.NewStyle().
+			Background(lipBlackColor).
+			Foreground(lipTextColor)
+
+	blueByteStyle = lipgloss.NewStyle().
+			Background(lipBlueColor).
+			Foreground(lipBlackColor)
+
+	greenByteStyle = lipgloss.NewStyle().
+			Background(lipGreenColor).
+			Foreground(lipBlackColor)
+
+	redByteStyle = lipgloss.NewStyle().
+			Background(lipRedColor).
+			Foreground(lipBlackColor)
 )
 
 type viewMode int
@@ -84,16 +100,18 @@ const (
 	countOfColorSchemes
 )
 
-var std8Colors = [...]string{
-	"0",  // Black
-	"4",  // Blue
-	"6",  // Cyan
-	"2",  // Green
-	"3",  // Yellow
-	"1",  // Red
-	"5",  // Magenta
-	"15", // White
+var std8Colors = [...]lipgloss.Style{
+	lipgloss.NewStyle().Background(lipgloss.Color("0")).Foreground(lipTextColor),   // Black
+	lipgloss.NewStyle().Background(lipgloss.Color("4")).Foreground(lipBlackColor),  // Blue
+	lipgloss.NewStyle().Background(lipgloss.Color("6")).Foreground(lipBlackColor),  // Cyan
+	lipgloss.NewStyle().Background(lipgloss.Color("2")).Foreground(lipBlackColor),  // Green
+	lipgloss.NewStyle().Background(lipgloss.Color("3")).Foreground(lipBlackColor),  // Yellow
+	lipgloss.NewStyle().Background(lipgloss.Color("1")).Foreground(lipBlackColor),  // Red
+	lipgloss.NewStyle().Background(lipgloss.Color("5")).Foreground(lipBlackColor),  // Magenta
+	lipgloss.NewStyle().Background(lipgloss.Color("15")).Foreground(lipBlackColor), // White
 }
+
+var colorGradient = [256]lipgloss.Style{}
 
 type model struct {
 	data          []byte
@@ -149,9 +167,9 @@ func (m model) handleSearchInput(msg tea.Msg) (model, tea.Cmd) {
 					idx := bytes.Index(m.data, []byte(searchStr))
 					if idx != -1 {
 						m.pendingOffset = int64(idx)
-						m.searchMsg = fmt.Sprintf("Found at offset: %08x (Enter: go | ESC: cancel)", idx)
+						m.searchMsg = highlightTextStyle.Render(fmt.Sprintf("Found at offset: %08x (Enter: go | ESC: cancel)", idx))
 					} else {
-						m.searchMsg = "String not found."
+						m.searchMsg = errorStatusStyle.Render("String not found.")
 						m.pendingOffset = -1
 					}
 				}
@@ -162,9 +180,9 @@ func (m model) handleSearchInput(msg tea.Msg) (model, tea.Cmd) {
 					newOffset, err := strconv.ParseInt(strings.TrimPrefix(hexStr, "0x"), 16, 64)
 					if err == nil {
 						m.pendingOffset = newOffset
-						m.searchMsg = fmt.Sprintf("Jump to offset: %08x (Enter: go | ESC: cancel)", newOffset)
+						m.searchMsg = highlightTextStyle.Render(fmt.Sprintf("Jump to offset: %08x (Enter: go | ESC: cancel)", newOffset))
 					} else {
-						m.searchMsg = "Invalid hex offset."
+						m.searchMsg = errorStatusStyle.Render("Invalid hex offset.")
 						m.pendingOffset = -1
 					}
 				}
@@ -216,8 +234,8 @@ func (m model) handleMessage(msg tea.Msg) (model, tea.Cmd) {
 			m.jumping = false
 			m.textInput.Focus()
 			m.textInput.SetValue("")
-			m.textInput.Prompt = "Search ASCII: "
-			m.searchMsg = ""
+			m.textInput.Prompt = highlightTextStyle.Render("Search ASCII: ")
+			m.searchMsg = inputStyle.Render("")
 			m.pendingOffset = -1
 			return m, nil
 
@@ -226,8 +244,8 @@ func (m model) handleMessage(msg tea.Msg) (model, tea.Cmd) {
 			m.searching = false
 			m.textInput.Focus()
 			m.textInput.SetValue("")
-			m.textInput.Prompt = "Jump to Hex Offset (e.g. 1A0): "
-			m.searchMsg = ""
+			m.textInput.Prompt = highlightTextStyle.Render("Jump to Hex Offset (e.g. 1A0): ")
+			m.searchMsg = inputStyle.Render("")
 			m.pendingOffset = -1
 			return m, nil
 
@@ -296,9 +314,9 @@ func (m model) View() string {
 
 	maxWidth := m.calculateMaxWidth(headerContent, dataContent, footerContent, hilbertN)
 
-	headerView := borderStyle.BorderBottom(false).Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(headerContent)
-	contentView := borderStyle.Width(maxWidth).Background(lipgloss.Color(backgroundColor)).Render(dataContent)
-	footerView := lipgloss.NewStyle().Width(maxWidth + 2).Background(lipgloss.Color(backgroundColor)).Align(lipgloss.Center).Render(footerContent)
+	headerView := borderStyle.BorderBottom(false).Width(maxWidth).Background(lipBgColor).Align(lipgloss.Center).Render(headerContent)
+	contentView := borderStyle.Width(maxWidth).Background(lipBgColor).Render(dataContent)
+	footerView := lipgloss.NewStyle().Width(maxWidth + 2).Background(lipBgColor).Align(lipgloss.Center).Render(footerContent)
 
 	fullView := lipgloss.JoinVertical(lipgloss.Center, headerView, contentView, footerView)
 
@@ -380,7 +398,7 @@ func (m model) renderFooter() string {
 		return m.textInput.View()
 	}
 	if m.searchMsg != "" {
-		return helpStyle.Render(m.searchMsg)
+		return inputStyle.Render(m.searchMsg)
 	}
 	return helpStyle.Render("Arrows: Scroll | PgUp/Dn: Page | Tab: Mode | /: Scheme | J: Jump | S: Search | Q: Quit")
 }
@@ -445,33 +463,34 @@ func newModelFromFile(filename string) (*model, error) {
 // Ported helper functions
 
 func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows int, scheme colorScheme) {
+	buf := bytes.NewBuffer(nil)
 	for i := 0; i < rows && (offset+int64(i*hexdumpBytesPerRow)) < fileSize; i++ {
 		rowOffset := offset + int64(i*hexdumpBytesPerRow)
 		offsetStr := fmt.Sprintf("%x", rowOffset)
 		offsetPad := "00000000"
-		fmt.Fprintf(w, infoStyle.Render("%s%s%s"), dimStyle.Render(offsetPad[:8-len(offsetStr)]), infoStyle.Render(offsetStr), dimStyle.Render(": "))
+		fmt.Fprintf(buf, infoStyle.Render("%s%s%s"), dimStyle.Render(offsetPad[:8-len(offsetStr)]), infoStyle.Render(offsetStr), dimStyle.Render(": "))
 		for j := 0; j < hexdumpBytesPerRow; j++ {
 			addr := rowOffset + int64(j)
 			if addr < fileSize {
 				val := data[addr]
 				style := getStyle(val, scheme)
-				fmt.Fprintf(w, "%s%s", style.Render(fmt.Sprintf("%02x", val)), dimStyle.Render(" "))
+				fmt.Fprintf(buf, "%s%s", style.Render(fmt.Sprintf("%02x", val)), dimStyle.Render(" "))
 			} else {
-				fmt.Fprint(w, "   ")
+				fmt.Fprint(buf, "   ")
 			}
 		}
-		fmt.Fprint(w, dimStyle.Render(" | "))
+		fmt.Fprint(buf, dimStyle.Render(" | "))
 		for j := 0; j < hexdumpBytesPerRow; j++ {
 			addr := rowOffset + int64(j)
 			if addr < fileSize {
 				val := data[addr]
 				if val >= 32 && val <= 126 {
-					fmt.Fprintf(w, infoStyle.Render("%c"), val)
+					fmt.Fprintf(buf, infoStyle.Render("%c"), val)
 				} else {
-					fmt.Fprint(w, dimStyle.Render("."))
+					fmt.Fprint(buf, dimStyle.Render("."))
 				}
 			} else {
-				fmt.Fprint(w, " ")
+				fmt.Fprint(buf, " ")
 			}
 		}
 
@@ -489,7 +508,8 @@ func renderHexdump(w io.Writer, data []byte, fileSize int64, offset int64, rows 
 		// Pad row to a consistent width to prevent centering jitter
 		// Base hexdump width: 8 (offset) + 2 (": ") + 16*3 (hex) + 3 (" | ") + 16 (ascii) = 8+2+48+3+16 = 77
 		// We'll use a fixed width for magic info area if we want stability
-		fmt.Fprintf(w, "%s%s\n", dimStyle.Render(" | "), highlightTextStyle.Render(magicInfo))
+		fmt.Fprintf(w, "%s%s%s\n", buf.String(), dimStyle.Render(" | "), highlightTextStyle.Render(magicInfo))
+		buf.Reset()
 	}
 }
 
@@ -604,10 +624,7 @@ func getColorMappingHeader(scheme colorScheme) string {
 	switch scheme {
 	case scheme8colors:
 		for i := 0; i < len(std8Colors); i++ {
-			style := lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[i]))
-			if i != 0 {
-				style = style.Foreground(lipgloss.Color(blackColor))
-			}
+			style := std8Colors[i]
 			mapping.WriteString(style.Render(fmt.Sprintf(" %02x ", i*32)))
 		}
 	case scheme256Colors:
@@ -616,10 +633,10 @@ func getColorMappingHeader(scheme colorScheme) string {
 			mapping.WriteString(style.Render(" "))
 		}
 	case schemePrintable:
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(blackColor)).Foreground(lipgloss.Color(textColor)).Render(" NULL "))
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(blueColor)).Foreground(lipgloss.Color(blackColor)).Render(" SPACE "))
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(greenColor)).Foreground(lipgloss.Color(blackColor)).Render(" PRINT "))
-		mapping.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(redColor)).Foreground(lipgloss.Color(blackColor)).Render(" OTHER "))
+		mapping.WriteString(blackByteStyle.Render(" NULL "))
+		mapping.WriteString(blueByteStyle.Render(" SPACE "))
+		mapping.WriteString(greenByteStyle.Render(" PRINT "))
+		mapping.WriteString(redByteStyle.Render(" OTHER "))
 	}
 	return mapping.String()
 }
@@ -629,7 +646,7 @@ func getStyle(value byte, scheme colorScheme) lipgloss.Style {
 	case schemePrintable:
 		return getPrintableStyle(value)
 	case scheme256Colors:
-		return get256ColorStyle(value)
+		return colorGradient[value]
 	case scheme8colors:
 		fallthrough
 	default:
@@ -640,43 +657,44 @@ func getStyle(value byte, scheme colorScheme) lipgloss.Style {
 func getPrintableStyle(value byte) lipgloss.Style {
 	switch {
 	case value == 0:
-		return lipgloss.NewStyle().Background(lipgloss.Color(blackColor)).Foreground(lipgloss.Color(textColor)) // Null - Black
+		return blackByteStyle
 	case value == 32:
-		return lipgloss.NewStyle().Background(lipgloss.Color(blueColor)).Foreground(lipgloss.Color(blackColor)) // Space - Blue
+		return blueByteStyle
 	case value >= 33 && value <= 126:
-		return lipgloss.NewStyle().Background(lipgloss.Color(greenColor)).Foreground(lipgloss.Color(blackColor)) // Printable - Green
+		return greenByteStyle
 	default:
-		return lipgloss.NewStyle().Background(lipgloss.Color(redColor)).Foreground(lipgloss.Color(blackColor)) // Non-printable - Red
+		return redByteStyle
 	}
 }
 
-func get256ColorStyle(value byte) lipgloss.Style {
-	var r, g, b int
-	v := int(value)
-	if v < 64 {
-		// Blue to Cyan
-		r = 0
-		g = v * 4
-		b = 255
-	} else if v < 128 {
-		// Cyan to Green
-		r = 0
-		g = 255
-		b = 255 - (v-64)*4
-	} else if v < 192 {
-		// Green to Yellow
-		r = (v - 128) * 4
-		g = 255
-		b = 0
-	} else {
-		// Yellow to Red
-		r = 255
-		g = 255 - (v-192)*4
-		b = 0
+func populateGradientColorStyle() {
+	for i := 0; i < 256; i++ {
+		var r, g, b int
+		v := i
+		if v < 64 {
+			// Blue to Cyan
+			r = 0
+			g = v * 4
+			b = 255
+		} else if v < 128 {
+			// Cyan to Green
+			r = 0
+			g = 255
+			b = 255 - (v-64)*4
+		} else if v < 192 {
+			// Green to Yellow
+			r = (v - 128) * 4
+			g = 255
+			b = 0
+		} else {
+			// Yellow to Red
+			r = 255
+			g = 255 - (v-192)*4
+			b = 0
+		}
+		colorGradient[i] = lipgloss.NewStyle().Foreground(lipBlackColor).
+			Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
 	}
-	fgColor := blackColor
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(fgColor)).
-		Background(lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", r, g, b)))
 }
 
 func get8ColorStyle(value byte) lipgloss.Style {
@@ -684,13 +702,7 @@ func get8ColorStyle(value byte) lipgloss.Style {
 	if colorIndex >= len(std8Colors) {
 		colorIndex = len(std8Colors) - 1
 	}
-	style := lipgloss.NewStyle().Background(lipgloss.Color(std8Colors[colorIndex]))
-	if colorIndex == 0 {
-		style = style.Foreground(lipgloss.Color(textColor))
-	} else {
-		style = style.Foreground(lipgloss.Color(blackColor))
-	}
-	return style
+	return std8Colors[colorIndex]
 }
 
 func main() {
@@ -701,6 +713,7 @@ func main() {
 
 	filename := os.Args[1]
 
+	populateGradientColorStyle()
 	m, err := newModelFromFile(filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing application: %v\n", err)
