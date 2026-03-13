@@ -387,7 +387,7 @@ func closeTask(projectName, taskID string) error {
 		for _, task := range tasks {
 			if task.ID == parentTaskID {
 				for i, line := range lines {
-					for j, subtask := range task.Subtasks {
+					for _, subtask := range task.Subtasks {
 						if subtask.ID == subtaskID {
 							re := regexp.MustCompile(fmt.Sprintf(`^- \[ \] (%s) (%s)$`, regexp.QuoteMeta(subtask.CreatedDate), regexp.QuoteMeta(subtask.Description)))
 							if re.MatchString(line) {
@@ -399,7 +399,6 @@ func closeTask(projectName, taskID string) error {
 								lines = newLines
 								break
 							}
-							task.Subtasks[j].CompletedDate = today
 						}
 					}
 				}
@@ -656,6 +655,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			_ = listTasks(project, true)
 		},
 	}
 
@@ -675,6 +675,7 @@ func main() {
 				os.Exit(1)
 			}
 			fmt.Printf("Cleared all completed tasks and subtasks from %s\n", project)
+			_ = listTasks(project, true)
 		},
 	}
 
