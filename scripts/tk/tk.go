@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +34,27 @@ type Subtask struct {
 	Status        string
 	LineNumber    int
 }
+
+const (
+	dimColor    = lipgloss.Color("241")
+	nameColor   = lipgloss.Color("#ab98bf")
+	openColor   = lipgloss.Color("#cfae23")
+	closedColor = lipgloss.Color("#6e7649")
+	taskColor   = lipgloss.Color("#d3a8d3")
+)
+
+var (
+	dimStyle = lipgloss.NewStyle().
+			Foreground(dimColor)
+	taskStyle = lipgloss.NewStyle().
+			Foreground(taskColor)
+	nameStyle = lipgloss.NewStyle().
+			Foreground(nameColor)
+	openStyle = lipgloss.NewStyle().
+			Foreground(openColor)
+	closedStyle = lipgloss.NewStyle().
+			Foreground(closedColor)
+)
 
 func getVimwikiHome() (string, error) {
 	home := os.Getenv("VIMWIKI_HOME")
@@ -227,11 +250,11 @@ func listTasks(projectName string, openOnly bool) error {
 			continue
 		}
 
-		statusIcon := "[ ]"
+		statusIcon := openStyle.Render("[ ]")
 		if task.Status == "closed" {
-			statusIcon = "[x]"
+			statusIcon = closedStyle.Render("[x]")
 		}
-		fmt.Printf("Task %d: %s %s (Created: %s", task.ID, statusIcon, task.Name, task.CreatedDate)
+		fmt.Printf("Task %s: %s %s (Created: %s", taskStyle.Render(strconv.Itoa(task.ID)), statusIcon, nameStyle.Render(task.Name), task.CreatedDate)
 		if task.CompletedDate != "" {
 			fmt.Printf(", Completed: %s", task.CompletedDate)
 		}
@@ -241,11 +264,12 @@ func listTasks(projectName string, openOnly bool) error {
 			if openOnly && subtask.Status == "closed" {
 				continue
 			}
-			subtaskIcon := "[ ]"
+			subtaskIcon := openStyle.Render("[ ]")
 			if subtask.Status == "closed" {
-				subtaskIcon = "[x]"
+				subtaskIcon = closedStyle.Render("[x]")
 			}
-			fmt.Printf("  Subtask %d.%d: %s %s (Created: %s", task.ID, subtask.ID, subtaskIcon, subtask.Description, subtask.CreatedDate)
+			id := taskStyle.Render(fmt.Sprintf("%d.%d", task.ID, subtask.ID))
+			fmt.Printf("  - %s: %s %s (Created: %s", id, subtaskIcon, nameStyle.Render(subtask.Description), subtask.CreatedDate)
 			if subtask.CompletedDate != "" {
 				fmt.Printf(", Completed: %s", subtask.CompletedDate)
 			}
