@@ -37,9 +37,8 @@ type Subtask struct {
 
 const (
 	dimColor    = lipgloss.Color("241")
-	nameColor   = lipgloss.Color("#ab98bf")
 	openColor   = lipgloss.Color("#cfae23")
-	closedColor = lipgloss.Color("#6e7649")
+	closedColor = lipgloss.Color("#665c71")
 	taskColor   = lipgloss.Color("#d3a8d3")
 )
 
@@ -49,11 +48,16 @@ var (
 	taskStyle = lipgloss.NewStyle().
 			Foreground(taskColor)
 	nameStyle = lipgloss.NewStyle().
-			Foreground(nameColor)
+			Foreground(taskColor)
 	openStyle = lipgloss.NewStyle().
 			Foreground(openColor)
 	closedStyle = lipgloss.NewStyle().
 			Foreground(closedColor)
+)
+
+var (
+	openIcon   = openStyle.Render("[ ]")
+	closedIcon = openStyle.Render("[") + closedStyle.Render("x") + openStyle.Render("]")
 )
 
 func getVimwikiHome() (string, error) {
@@ -210,6 +214,10 @@ func parseTasks(projectName string) ([]Task, error) {
 				currentTask.Status = match[1]
 				continue
 			}
+			if match := completedPattern.FindStringSubmatch(line); match != nil && match[1] != "" && len(currentTask.Subtasks) > 0 {
+				currentTask.Subtasks[len(currentTask.Subtasks)-1].CompletedDate = match[1]
+				continue
+			}
 			if match := completedPattern.FindStringSubmatch(line); match != nil && match[1] != "" {
 				currentTask.CompletedDate = match[1]
 				continue
@@ -244,19 +252,19 @@ func listTasks(projectName string, openOnly bool) error {
 		return err
 	}
 
-	fmt.Printf("Tasks for project: %s\n\n", projectName)
+	fmt.Printf("Tasks for project: %s\n\n", openStyle.Render(projectName))
 	for _, task := range tasks {
 		if openOnly && task.Status == "closed" {
 			continue
 		}
 
-		statusIcon := openStyle.Render("[ ]")
+		statusIcon := openIcon
 		if task.Status == "closed" {
-			statusIcon = closedStyle.Render("[x]")
+			statusIcon = closedIcon
 		}
-		fmt.Printf("Task %s: %s %s (Created: %s", taskStyle.Render(strconv.Itoa(task.ID)), statusIcon, nameStyle.Render(task.Name), task.CreatedDate)
+		fmt.Printf("Task %2s: %s %s (%s", taskStyle.Render(strconv.Itoa(task.ID)), statusIcon, nameStyle.Render(task.Name), task.CreatedDate)
 		if task.CompletedDate != "" {
-			fmt.Printf(", Completed: %s", task.CompletedDate)
+			fmt.Printf(" -> %s", task.CompletedDate)
 		}
 		fmt.Printf(")\n")
 
@@ -264,14 +272,14 @@ func listTasks(projectName string, openOnly bool) error {
 			if openOnly && subtask.Status == "closed" {
 				continue
 			}
-			subtaskIcon := openStyle.Render("[ ]")
+			subtaskIcon := openIcon
 			if subtask.Status == "closed" {
-				subtaskIcon = closedStyle.Render("[x]")
+				subtaskIcon = closedIcon
 			}
-			id := taskStyle.Render(fmt.Sprintf("%d.%d", task.ID, subtask.ID))
-			fmt.Printf("  - %s: %s %s (Created: %s", id, subtaskIcon, nameStyle.Render(subtask.Description), subtask.CreatedDate)
+			id := taskStyle.Render(fmt.Sprintf("%2d.%-2d", task.ID, subtask.ID))
+			fmt.Printf("  - %s: %s %s (%s", id, subtaskIcon, nameStyle.Render(subtask.Description), subtask.CreatedDate)
 			if subtask.CompletedDate != "" {
-				fmt.Printf(", Completed: %s", subtask.CompletedDate)
+				fmt.Printf(" -> %s", subtask.CompletedDate)
 			}
 			fmt.Printf(")\n")
 		}
@@ -384,10 +392,11 @@ func closeTask(projectName, taskID string) error {
 							re := regexp.MustCompile(fmt.Sprintf(`^- \[ \] (%s) (%s)$`, regexp.QuoteMeta(subtask.CreatedDate), regexp.QuoteMeta(subtask.Description)))
 							if re.MatchString(line) {
 								lines[i] = strings.Replace(line, "- [ ]", "- [x]", 1)
-								subtaskCompletedDate := fmt.Sprintf(" (Completed: %s)", today)
-								if !strings.Contains(lines[i], "Completed:") {
-									lines[i] = lines[i] + subtaskCompletedDate
-								}
+								newLines := make([]string, len(lines)+1)
+								copy(newLines[:i+1], lines[:i+1])
+								newLines[i+1] = fmt.Sprintf("**Completed:** %s", today)
+								copy(newLines[i+2:], lines[i+1:])
+								lines = newLines
 								break
 							}
 							task.Subtasks[j].CompletedDate = today
@@ -467,6 +476,82 @@ func closeTask(projectName, taskID string) error {
 	}
 
 	return os.WriteFile(projectPath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+func clearCompleted(projectName string) error {
+	tasks, err := parseTasks(projectName)
+	if err != nil {
+		return err
+	}
+
+	projectPath, err := getProjectPath(projectName)
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(projectPath)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(content), "\n")
+	var newLines []string
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+		isTaskLine := false
+		taskEndLine := len(lines)
+
+		for _, task := range tasks {
+			if strings.Contains(line, fmt.Sprintf("## %s %s", task.CreatedDate, task.Name)) {
+				if task.Status == "closed" {
+					isTaskLine = true
+					for j := i + 1; j < len(lines); j++ {
+						if strings.HasPrefix(lines[j], "## ") {
+							taskEndLine = j
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+
+		if isTaskLine {
+			i = taskEndLine
+			continue
+		}
+
+		subtaskCompletedLine := false
+		for _, task := range tasks {
+			for _, subtask := range task.Subtasks {
+				if subtask.Status == "closed" {
+					re := regexp.MustCompile(fmt.Sprintf(`^- \[x\] (%s) (%s)$`, regexp.QuoteMeta(subtask.CreatedDate), regexp.QuoteMeta(subtask.Description)))
+					if re.MatchString(line) {
+						subtaskCompletedLine = true
+						break
+					}
+					if strings.Contains(line, fmt.Sprintf("**Completed:** %s", subtask.CompletedDate)) {
+						subtaskCompletedLine = true
+						break
+					}
+				}
+			}
+			if subtaskCompletedLine {
+				break
+			}
+		}
+
+		if subtaskCompletedLine {
+			i++
+			continue
+		}
+
+		newLines = append(newLines, line)
+		i++
+	}
+
+	return os.WriteFile(projectPath, []byte(strings.Join(newLines, "\n")), 0644)
 }
 
 func setupProject(projectName string) error {
@@ -550,6 +635,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			_ = listTasks(project, true)
 		},
 	}
 	openCmd.Flags().StringP("parent", "p", "", "Parent task ID")
@@ -573,10 +659,30 @@ func main() {
 		},
 	}
 
+	clearCmd := &cobra.Command{
+		Use:   "clear [project]",
+		Short: "Delete all completed tasks and subtasks",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			project := args[0]
+
+			if err := setupProject(project); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := clearCompleted(project); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Cleared all completed tasks and subtasks from %s\n", project)
+		},
+	}
+
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(allCmd)
 	rootCmd.AddCommand(openCmd)
 	rootCmd.AddCommand(closeCmd)
+	rootCmd.AddCommand(clearCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
