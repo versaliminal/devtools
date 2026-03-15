@@ -284,6 +284,7 @@ func listTasks(projectName string, openOnly bool) error {
 			fmt.Printf(")\n")
 		}
 	}
+	println("")
 	return nil
 }
 
@@ -553,6 +554,49 @@ func clearCompleted(projectName string) error {
 	return os.WriteFile(projectPath, []byte(strings.Join(newLines, "\n")), 0644)
 }
 
+func listProjects() error {
+	tasksDir, err := getTasksDir()
+	if err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(openStyle.Render("Projects:"))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") && entry.Name() != "index.md" {
+			projectName := strings.TrimSuffix(entry.Name(), ".md")
+			fmt.Printf("  - %s\n", nameStyle.Render(projectName))
+		}
+	}
+	return nil
+}
+
+func listAllTasks(openOnly bool) error {
+	tasksDir, err := getTasksDir()
+	if err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") && entry.Name() != "index.md" {
+			projectName := strings.TrimSuffix(entry.Name(), ".md")
+			if err := listTasks(projectName, openOnly); err != nil {
+				fmt.Fprintf(os.Stderr, "Error listing tasks for %s: %v\n", projectName, err)
+			}
+		}
+	}
+	return nil
+}
+
 func setupProject(projectName string) error {
 	err := ensureTasksDir()
 	if err != nil {
@@ -679,11 +723,74 @@ func main() {
 		},
 	}
 
+	projectsCmd := &cobra.Command{
+		Use:   "projects",
+		Short: "List all projects",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := ensureTasksDir(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := ensureIndexFile(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := listProjects(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	todoCmd := &cobra.Command{
+		Use:   "todo",
+		Short: "List open tasks for all projects",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := ensureTasksDir(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := ensureIndexFile(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := listAllTasks(true); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
+	dumpCmd := &cobra.Command{
+		Use:   "dump",
+		Short: "List all tasks for all projects",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, args []string) {
+			if err := ensureTasksDir(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := ensureIndexFile(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			if err := listAllTasks(false); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		},
+	}
+
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(allCmd)
 	rootCmd.AddCommand(openCmd)
 	rootCmd.AddCommand(closeCmd)
 	rootCmd.AddCommand(clearCmd)
+	rootCmd.AddCommand(projectsCmd)
+	rootCmd.AddCommand(todoCmd)
+	rootCmd.AddCommand(dumpCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
